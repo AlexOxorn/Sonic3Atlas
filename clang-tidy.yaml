@@ -1,0 +1,35 @@
+---
+Checks:
+     - bugprone-*
+     - clang-analyzer-*
+     - concurrency-*
+     - cppcoreguidelines-*
+     - llvm-*
+     - misc-*
+     - modernize-*
+     - performance-*
+     - -misc-include-cleaner
+     - -cppcoreguidelines-macro-usage
+     - -misc-use-anonymous-namespace
+     - -cppcoreguidelines-avoid-non-const-global-variables
+     - -cppcoreguidelines-pro-type-vararg
+     - -modernize-use-trailing-return-type
+     - -cppcoreguidelines-avoid-magic-numbers
+     - -misc-const-correctness
+WarningsAsErrors: ''
+HeaderFileExtensions:
+  - ''
+  - h
+  - hh
+  - hpp
+  - hxx
+ImplementationFileExtensions:
+  - c
+  - cc
+  - cpp
+  - cxx
+HeaderFilterRegex: '.*'
+ExcludeHeaderFilterRegex: '.*'
+FormatStyle:     none
+User:     alexoxorn
+SystemHeaders:   false
