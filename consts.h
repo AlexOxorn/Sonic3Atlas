@@ -32,7 +32,7 @@ constexpr inline auto PORT = 5000;
 #define R_FROM_HEIGHT(x) {R_HEIGHT_TO_WIDTH(x), x}
 #define R_FULL R_FROM_HEIGHT(R_MAX_HEIGHT)
 
-consteval std::pair<int, int> scale16(const std::pair<int, int> &in) {
+constexpr std::pair<int, int> scale16(const std::pair<int, int> &in) {
     return {in.first / 16 * 16 + 16, in.second / 16 * 16 + 16};
 }
 

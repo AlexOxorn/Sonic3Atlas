@@ -6,3 +6,4 @@ output/
 SocketBins/
 shaders/
 LuaLink
+.idea/

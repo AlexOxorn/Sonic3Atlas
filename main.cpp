@@ -859,6 +859,13 @@ static float progress = 0.0f;
 
 s32 previousFrameLag = 0;
 
+static std::pair<int, int> level_size_to_resolution() {
+    int chunk_height = gameData.level_chunks.size();
+    int pixel_height = chunk_height * Chunk::WIDTH;
+    std::pair resolution = scale16(R_FROM_HEIGHT(pixel_height));
+    return resolution;
+}
+
 static updateResult update_data() {
     s32 flags = 0;
     progress += std::pow(1.5f, speed);
@@ -878,6 +885,12 @@ static updateResult update_data() {
         }
         skipToNextLevel = false;
         flags &= ~LAG_FRAME;
+    }
+
+    if (auto new_resolution = level_size_to_resolution();new_resolution != INTERNAL_RESOLUTION) {
+        INTERNAL_RESOLUTION = new_resolution;
+        SDL_SetRenderLogicalPresentation(renderer, RENDER_WIDTH, RENDER_HEIGHT, SDL_LOGICAL_PRESENTATION_OVERSCAN);
+        initDestTextures();
     }
 
     if (flags & FRAME_EOF)
@@ -971,8 +984,8 @@ static bool render_master_texture() {
     SDL_FRect dst = {
         .x = 0.0f,
         .y = 0.0f,
-        .w = RENDER_WIDTH,
-        .h = RENDER_HEIGHT
+        .w = static_cast<float>(RENDER_WIDTH),
+        .h = static_cast<float>(RENDER_HEIGHT)
     };
     SDL_FRect src = {
         .x = fmodf(scrollX, Chunk::WIDTH),
@@ -994,8 +1007,8 @@ static bool render_master_texture() {
     const SDL_FRect water_area{
         .x = 0,
         .y = (gameData.water_line - scrollY),
-        .w = RENDER_WIDTH,
-        .h = RENDER_HEIGHT
+        .w = static_cast<float>(RENDER_WIDTH),
+        .h = static_cast<float>(RENDER_HEIGHT)
     };
 
     SDL_RenderFillRect(renderer, &water_area);
@@ -1147,7 +1160,7 @@ extern "C" SDL_AppResult SDL_AppIterate(void *appstate) {
         if (!renderMessages(delta_time)) {
             return SDL_APP_FAILURE;
         }
-        SDL_SetRenderLogicalPresentation(renderer, RENDER_WIDTH, RENDER_HEIGHT, SDL_LOGICAL_PRESENTATION_STRETCH);
+        SDL_SetRenderLogicalPresentation(renderer, RENDER_WIDTH, RENDER_HEIGHT, SDL_LOGICAL_PRESENTATION_OVERSCAN);
         SDL_RenderPresent(renderer);
 
 
