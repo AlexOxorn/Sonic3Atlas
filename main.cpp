@@ -33,8 +33,300 @@ enum updateResult {
 
 static FILE* ffmpegProcess = nullptr;
 
-
 static updateResult update_data();
+
+/*
+Reads Data Packets from a FILE* (be it a binary file or a input socket)
+and updates the global `gameData` variable with the relevant data for the current frame.
+Reading will continue until either end of file, or it reads a "DONE____" packet.
+The function will then return a bit flag representing which data has been updated.
+
+Data Packets Start With an 8 Character ASCII Identifier Identifying the Type of Packet
+Binary Data is then read according to the packet data, which each different type
+defining how many bytes to read, and what they represent.
+
+First, a common set of data that is reused is what I will call a
+"VRAM" entry.
+
+The "VRAM entry" is 2 bytes with the bitfield format
+PCCY'XAAA AAAA'AAAA
+P: Priority Bit
+CC: Palette Line
+Y: Vertical Flip
+X: Horizotal Flip
+AAA'AAAA'AAAA: Tile index (Vram Address/32)
+
+
+---------------------
+SCRN_POS
+---------------------
+Screen Position
+Read 4 Two Byte unsigned integers in the order
+Plane-A X position
+Plane-A Y position
+Plane-B X position
+Plane-B Y position
+
+---------------------
+COLORTST
+---------------------
+Color Palette
+Reads 256 bytes, broken up into
+
+2 Palettes (above ground and underwater) with
+4 Palette Lines of
+16 Colors, each
+2 bytes in the format 0000'BBB0 GGG0'RRR0
+
+---------------------
+TILE_TST
+---------------------
+Reads 64KB as in the entirety of VRAM
+Uses these to build the current tileset.
+The tileset consists of
+
+2048 (0x800) Tiles each with
+8 Rows of
+4 bytes,
+    with the 8 nibbles representing the palette
+    index for the 8 pixels in that row
+
+---------------------
+TILE_LST (deprecated)
+---------------------
+Reads an arbitrary list of updated tiles.
+The tile index to update is read (2 bytes LE),
+followed by the 32 bytes for the tile data.
+
+This continue until a tile index of -1 (0xFFFF) is read
+At which point the reading stops.
+
+This will also update the `newly_updated_tiles`
+To better optimize chunk rerendering.
+
+---------------------
+VRAM_SET
+---------------------
+Representing Tile updates due to writes
+to the VDP data register
+
+Reads a destination tile index (2 bytes LE)
+and a number of tiles to update (2 bytes LE)
+
+Then will read that number of tiles (32 bytes each)
+and update the tiles from the tileset
+starting from the destination index read.
+
+This will also update the `newly_updated_tiles`
+To better optimize chunk rerendering.
+
+---------------------
+VRAM_DMA
+---------------------
+Representing Tile updates setting up
+DMAs to VRAM
+
+At present, functionally identical to VRAM_SET
+
+---------------------
+VRAMSET2 (deprecated)
+---------------------
+Same as VRAM_SET except that instead of reading
+the tile destination index and number of tiles,
+
+the byte destination index and number of bytes are read.
+As a result, both need to be divided by 32 (0x20)
+to get the tile index and length
+
+---------------------
+BLOCKTST
+---------------------
+Reads 6144 (0x1800) bytes for the block map.
+
+The block map consists of
+
+768 (0x300) Blocks each with
+4 Cells (2 x 2 grid) of
+2 byte VRAM entries.
+
+
+---------------------
+CHUNKTST
+---------------------
+Reads 32768 (0x8000) bytes for the chunk map.
+
+The chunk map consists of
+
+256 (0x100) Chunks each with
+64 Cells (8 x 8 grid) of
+2 bytes each.
+
+The bit field breakdown of Chunk Cell Data
+SSTT'YXII IIII'IIII
+SS: Alt Layer Solidity (Unused)
+TT: Main Layer Solidity (Unused)
+Y: Vertical Flip
+X: Horizotal Flip
+II'IIII'IIII: Block Index
+
+---------------------
+H_SCROLL (UNUSED)
+---------------------
+Meant to read the line index of Horizontal Interrupts.
+
+---------------------
+LVLDAT_(A/B)
+---------------------
+Reads the level layout (in the form of chunk id grid)
+for either the foreground (A) or background (B)
+
+First read the dimensions of the level
+- Columns (2 bytes - signed - LE)
+- Rows (2 bytes - signed - LE)
+
+Then reads then next (Columns * Rows) bytes,
+in row-major order
+with each byte representing a chunk ID.
+
+
+---------------------
+SPRITE_2
+---------------------
+First reads a 4 byte ascii instruction.
+
+If 'NEXT'
+    The next 74 (0x4A) bytes are the raw data
+    for a sprite in the Object_Status_Table
+    (See https://info.sonicretro.org/SCHG:Sonic_the_Hedgehog_3_%26_Knuckles/RAM_Editing#Object_Status_Table_Format)
+
+    The read the current mapping data for the sprite the current frame.
+    (Instructions on how to build the sprite graphics)
+
+    First the number of entries is read (2 bytes, signed, LE)
+    Then read the 6 bytes per entry.
+
+    the nibble field breakdown of each entry is
+    YYSS VVVV XXXX
+    YY: Y Position (signed BE)
+    SS: Shape [0000 wwhh: (ww + 1) x (hh + 1)]
+    VVVV: Vram Entry
+    XXXX: X Position (signed BE)
+
+    If the sprite is a compound sprite
+    (bit 6 of byte 4 of the sprite status entry is set)
+
+    Then the next 2 bytes (LE) are the number of subsprites for the object.
+    For each subsprite, the data is in the same format as above for reading
+    the current mapping data
+
+If 'DONE'
+There are no more sprites to process
+
+
+---------------------
+LOOPDATA
+---------------------
+The next 5 groups of 2 bytes represent (all signed LE)
+- The vertical loop value (used to represent the length of the loop)
+- The minimum horizontal screen position
+- The minimum vertical screen position (if < 0, vertically looping stage)
+- the maximum horiztonal screen position
+- the maximum vertical screen position
+
+
+---------------------
+WATER_LV
+---------------------
+1 byte flag representing if the current level has water
+2 bytes (LE) representing the current vertical coordinte of the water's height
+
+---------------------
+POSITION
+---------------------
+2 bytes (LE) for Player 1's horizontal position
+2 bytes (LE) for Player 1's vertical position
+
+---------------------
+RING_POS
+---------------------
+Read the ring location data (save for the initial 0000'0000)
+
+The following data is grouped into 4 bytes,
+with the first 2 bytes (signed LE) representing the x position of the ring
+and the next 2 bytes (signed LE) representing the y position of the ring
+
+if the x position is read as -1 (0xFFFF) then the end of the list has been reached
+and the y position is NOT read.
+
+---------------------
+RINGSTAT
+---------------------
+The first byte represent the current animation frame for all uncollected
+static rings.
+
+The next 1022 (0x3fe) bytes are the status of each
+of the 511 rings grouped into 2 bytes.
+
+If the ring is uncollected, its status is 0x0000
+If the ring is fully collected, its status if 0xFFFF
+If the ring is being collected, the upper bytes acts as a timer,
+with the lower byte representing which animation frame to use
+
+---------------------
+RING_MAP
+---------------------
+Mapping Data for rings (How ring graphics are built)
+
+Read 64 bytes
+Representing 8 frame,
+which 8 bytes of data per frame.
+
+Those 8 bytes are broken into
+- YPosition: 2 bytes (signed BE)
+- Empty Byte
+- Size 0000wwhh [(ww + 1) x (hh + 1)]
+- VRAM Entry: 2 bytes
+- XPosition: 2 bytes (signed BE)
+
+---------------------
+EVENTDAT
+---------------------
+1 byte for the Current Zone
+1 byte for the Current Act
+
+2 bytes (LE) for the current background event
+2 bytes (LE) for the current foreground event
+
+2 bytes (LE) for a generic background event variable
+6 * 2 bytes (LE) for 6 different generic foreground event variables
+2 bytes (LE) special variable used during LBZ Death Egg Event
+
+---------------------
+IS_PAUSE
+---------------------
+2 bytes for if the game is currently paused
+
+---------------------
+LAGFRAME (Unused)
+---------------------
+
+---------------------
+LAGCOUNT
+---------------------
+2 bytes (LE) for how many lag frames have occured since the last update
+Used for when outputing to a video, and you want to duplicate frames
+
+---------------------
+DONE____
+---------------------
+
+Marks that all game updates are done for the frame, and is ready
+to render the data to the screen.
+
+If however the game is currently paused, this acts as a NOP.
+
+*/
+
 
 static s32 getNextFrame(FILE* fd) {
     char msg[9] = {};
@@ -379,8 +671,6 @@ extern "C" SDL_AppResult SDL_AppInit(void ** /*appstate*/, int  /*argc*/, char *
 }
 
 
-
-
 #define RENDER_TOGGLE_EVENT(x) if (event->key.key == SDLK_##x) { renderFlags ^= (1 << (x-1)); renderToggleTimers[x-1] = 3.0f; }
 
 extern "C" SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event)
@@ -462,373 +752,6 @@ extern "C" SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event)
     return SDL_APP_CONTINUE;
 }
 
-static bool updatePalette() {
-    if (low_prio_palette == nullptr) {
-        low_prio_palette = SDL_CreatePalette(1 << (sizeof(indexedColor) * 8));
-        if (!low_prio_palette) {
-            SDL_Log("Couldn't create palette: %s", SDL_GetError());
-            return false;
-        }
-    }
-    if (high_prio_palette == nullptr) {
-        high_prio_palette = SDL_CreatePalette(1 << (sizeof(indexedColor) * 8));
-        if (!high_prio_palette) {
-            SDL_Log("Couldn't create palette: %s", SDL_GetError());
-            return false;
-        }
-    }
-
-    std::array<SDL_Color, PALETTE_SIZE*PALETTE_COUNT*2> low{};
-    std::array<SDL_Color, PALETTE_SIZE*PALETTE_COUNT*2> high{};
-    std::array<SDL_Color, PALETTE_SIZE*PALETTE_COUNT*2> lowTransparent{};
-    std::array<SDL_Color, PALETTE_SIZE*PALETTE_COUNT*2> highTransparent{};
-
-    auto to_SDL_color = [](const Color8Bit color) {
-        return SDL_Color{.r = color.red, .g = color.green, .b = color.blue, .a = 255};
-    };
-    auto to_SDL_halfColor = [](const Color8Bit color) {
-        return SDL_Color{.r = color.red, .g = color.green, .b = color.blue, .a = 128};
-    };
-    const auto low_out = low.begin();
-    const auto high_out = high.begin();
-    const auto lowT_out = lowTransparent.begin();
-    const auto highT_out = highTransparent.begin();
-
-    // LOW PRIO
-    for (auto [i, line] : stdr::views::enumerate(gameData.palette.lines)) {
-        stdr::transform(line.colors, low_out + (PALETTE_SIZE * i), to_SDL_color);
-        if constexpr (sizeof(indexedColor) > 1)
-            stdr::transform(line.colors, lowT_out + (PALETTE_SIZE * i), to_SDL_halfColor);
-    }
-    for (auto [i, line] : stdr::views::enumerate(gameData.water_palette.lines)) {
-        stdr::transform(line.colors, low_out + (PALETTE_SIZE * (i+4)), to_SDL_color);
-        if constexpr (sizeof(indexedColor) > 1)
-            stdr::transform(line.colors, lowT_out + (PALETTE_SIZE * (i+4)), to_SDL_halfColor);
-    }
-    // HIGH PRIO
-    for (auto [i, line] : stdr::views::enumerate(gameData.palette.lines)) {
-        stdr::transform(line.colors, high_out + (PALETTE_SIZE * (i+8)), to_SDL_color);
-        if constexpr (sizeof(indexedColor) > 1)
-            stdr::transform(line.colors, highT_out + (PALETTE_SIZE * (i+8)), to_SDL_halfColor);
-    }
-    for (auto [i, line] : stdr::views::enumerate(gameData.water_palette.lines)) {
-        stdr::transform(line.colors, high_out + (PALETTE_SIZE * (i+12)), to_SDL_color);
-        if constexpr (sizeof(indexedColor) > 1)
-            stdr::transform(line.colors, highT_out + (PALETTE_SIZE * (i+12)), to_SDL_halfColor);
-    }
-
-    low_out[0] = {.r=0,.g=0,.b=0,.a=0};
-    low_out[0x40] = {.r=0,.g=0,.b=0,.a=0};
-    high_out[0x80] = {.r=0,.g=0,.b=0,.a=0};
-    high_out[0xC0] = {.r=0,.g=0,.b=0,.a=0};
-
-    if (!SDL_SetPaletteColors(low_prio_palette, low.data(), 0, PALETTE_SIZE * PALETTE_COUNT * 2)) {
-        SDL_Log("Couldn't set palette low opaque: %s", SDL_GetError());
-        return false;
-    };
-
-    if (!SDL_SetPaletteColors(high_prio_palette, high.data(), 0, PALETTE_SIZE * PALETTE_COUNT * 2)) {
-        SDL_Log("Couldn't set palette high opaque: %s", SDL_GetError());
-        return false;
-    };
-
-
-    if constexpr (sizeof(indexedColor) > 1) {
-        if (!SDL_SetPaletteColors(low_prio_palette, lowTransparent.data(), 0x100, PALETTE_SIZE * PALETTE_COUNT * 2)) {
-            SDL_Log("Couldn't set palette low transparent: %s", SDL_GetError());
-            return false;
-        };
-
-        if (!SDL_SetPaletteColors(high_prio_palette, highTransparent.data(), 0x100, PALETTE_SIZE * PALETTE_COUNT * 2)) {
-            SDL_Log("Couldn't set palette low transparent: %s", SDL_GetError());
-            return false;
-        };
-    }
-
-    if (tiles_texture) {
-        if (!SDL_SetTexturePalette(tiles_texture, high_prio_palette)) {
-            SDL_Log("Couldn't assign 1 palette: %s", SDL_GetError());
-            return false;
-        }
-    }
-    if (chunks_texture) {
-        if (!SDL_SetTexturePalette(chunks_texture, high_prio_palette)) {
-            SDL_Log("Couldn't assign 2 palette: %s", SDL_GetError());
-            return false;
-        }
-    }
-    if (mappings_texture) {
-        if (!SDL_SetTexturePalette(mappings_texture, high_prio_palette)) {
-            SDL_Log("Couldn't assign 3 palette: %s", SDL_GetError());
-            return false;
-        }
-    }
-
-    return true;
-}
-
-static bool fullTileUpdate() {
-    indexedColor* SDLpixels;
-    int pitch;
-    if (!SDL_LockTexture(tiles_texture, nullptr, reinterpret_cast<void**>(&SDLpixels), &pitch)) {
-        SDL_Log("Couldn't lock tile texture: %s", SDL_GetError());
-        return false;
-    };
-
-    for (auto& [pixels]: gameData.tileset.tiles) {
-        for (auto row : pixels) {
-            for (int offsets = 0; offsets < 0x80; offsets+=0x10) {
-                for (const auto p : row) {
-                    if (p)
-                        *SDLpixels++ = p + offsets;
-                    else
-                        *SDLpixels++ = 0;
-                }
-            }
-        }
-    }
-
-    SDL_UnlockTexture(tiles_texture);
-    return true;
-}
-
-template <int CURR, typename Tup, typename F>
-static void loopTuple(const Tup& data, const F& func) {
-    if (CURR >= std::tuple_size_v<Tup>)
-        return;
-    func(std::get<CURR>(data));
-    loopTuple<CURR + 1, Tup, F>(data, func);
-}
-
-static bool fullChunkUpdate() {
-    indexedColor* SDLpixels;
-    int pitch;
-    if (!SDL_LockTexture(chunks_texture, nullptr, reinterpret_cast<void**>(&SDLpixels), &pitch)) {
-        SDL_Log("Couldn't lock tile texture: %s", SDL_GetError());
-        return false;
-    };
-
-    std::vector<bool> maskData(Chunk::WIDTH*16 *  Chunk::WIDTH * ChunkMap::COUNT/8);
-    const indexedColor* start = SDLpixels;
-    auto setMaskBit = [&] (const indexedColor* pixel) {
-        const long index = pixel - start;
-        maskData[index] = true;
-    };
-
-    auto getChunkBytes = [&] (const int i) {
-        return gameData.chunks.getBytes(i,
-            gameData.blocks,
-            gameData.tileset); };
-
-    for (int i = 0; i < ChunkMap::COUNT/8; ++i) {
-        std::array<Chunk::pixelType, 16> chunks{};
-        for (int j = 0; j < 8; ++j) {
-            chunks[2*j] = getChunkBytes(j + i * 8);
-            chunks[2*j+1] = getChunkBytes(j + i * 8);
-        }
-
-        for (auto row : zip_array(chunks)) {
-            for (auto [rowCount, subrow] : row | stdv::enumerate) {
-                for (int k = 0; k < subrow.size(); ++k) {
-                    *SDLpixels++ = subrow[k] + (rowCount % 2 ? 0x40 : 0);
-                }
-            }
-        }
-    }
-    SDL_UnlockTexture(chunks_texture);
-
-    if (!SDL_LockTexture(translucency_mask_texture, nullptr, reinterpret_cast<void**>(&SDLpixels), &pitch)) {
-        SDL_Log("Couldn't lock transparency texture: %s", SDL_GetError());
-        return false;
-    };
-
-    for (const bool t : maskData) {
-        *SDLpixels++ = static_cast<int>(t);
-    }
-    SDL_UnlockTexture(translucency_mask_texture);
-
-    return true;
-}
-
-static bool updateMappings() {
-    // Building Map Bytes
-    for (auto& s : gameData.sprites) {
-        for (auto &entry : s.frame.entries) {
-            static_cast<void>(entry.getBytes(s.object.art_tile, gameData.tileset));
-        }
-        for (auto& childEntry : s.children | stdv::transform(&SpriteMappingFrame::entries) | stdv::join) {
-            static_cast<void>(childEntry.getBytes(s.object.art_tile, gameData.tileset));
-        }
-    }
-
-    constexpr auto pixelsPerMapRow = pixelsPerRow * SpriteMappingEntry::WIDTH;
-
-    auto chunkToId = [](const int c, const long x, const long y) {
-        const long chunk_row = c / MAPPING_ENTRY_PER_ROW;
-        const long chunk_col = (c % MAPPING_ENTRY_PER_ROW) * 2;
-        long base = chunk_row * pixelsPerMapRow;
-        base += y * pixelsPerRow;
-        base += chunk_col * SpriteMappingEntry::WIDTH;
-        base += x;
-        return base;
-    };
-
-    indexedColor* SDLpixels;
-    int pitch;
-    if (!SDL_LockTexture(mappings_texture, nullptr, reinterpret_cast<void**>(&SDLpixels), &pitch)) {
-        SDL_Log("Couldn't lock tile texture: %s", SDL_GetError());
-        return false;
-    };
-
-    const int number_of_entries = static_cast<int>(SpriteMappingEntry::mappingPixels.size());
-    for (int e = 0; e < number_of_entries; ++e) {
-        auto pixels = SpriteMappingEntry::mappingPixels[e];
-
-        for (int j = 0; j < SpriteMappingEntry::WIDTH; ++j) {
-            const auto& row = pixels[j];
-            for (int i = 0; i < SpriteMappingEntry::WIDTH; ++i) {
-                const u8 p = row[i];
-                const auto pixId = chunkToId(e, i, j);
-                SDLpixels[pixId] = p;
-                SDLpixels[pixId+SpriteMappingEntry::WIDTH] = p+0x40;
-            }
-        }
-    }
-
-    SDL_UnlockTexture(mappings_texture);
-    return true;
-}
-
-static bool partialTileUpdate() {
-    indexedColor* SDLpixels;
-    int pitch;
-
-    if (!SDL_LockTexture(tiles_texture, nullptr, reinterpret_cast<void**>(&SDLpixels), &pitch)) {
-        SDL_Log("Couldn't lock tile texture: %s", SDL_GetError());
-        return false;
-    };
-
-    pitch /= sizeof(indexedColor);
-
-    constexpr auto t_pixels_per_row = Tile::WIDTH * 8;
-    constexpr auto t_pixels_per_tile_row = t_pixels_per_row * Tile::WIDTH;
-    assert(pitch == t_pixels_per_row);
-
-    auto tileToId = [](const int c, const long x, const long y) {
-        long base = c * t_pixels_per_tile_row;
-        base += y * t_pixels_per_row;
-        base += x;
-        return base;
-    };
-
-    for (const int tile_to_update : gameData.newly_updated_tiles) {
-        SDL_Rect tile_area {
-            .x = 0,
-            .y = tile_to_update*Tile::WIDTH,
-            .w = 8 * Tile::WIDTH,
-            .h = Tile::WIDTH
-        };
-
-        const auto& pixels = gameData.tileset.tiles[tile_to_update].pixels;
-        for (int j = 0; j < Tile::WIDTH; ++j) {
-            const auto& row = pixels[j];
-            for (long offset = 0; offset < 8; offset++) {
-                for (int i = 0; i < Tile::WIDTH; ++i) {
-                    const u8 p = row[i];
-
-                    const long id = tileToId(tile_to_update, i + offset*Tile::WIDTH, j);
-                    SDLpixels[id] = p + offset*0x10;
-                }
-            }
-        }
-    }
-
-
-    SDL_UnlockTexture(tiles_texture);
-
-
-
-    if (!SDL_LockTexture(chunks_texture, nullptr, reinterpret_cast<void**>(&SDLpixels), &pitch)) {
-        SDL_Log("Couldn't lock tile texture: %s", SDL_GetError());
-        return false;
-    };
-
-    pitch /= sizeof(indexedColor);
-
-    constexpr auto pixels_per_row = Chunk::WIDTH * 16;
-    constexpr auto pixels_per_chunk_row = pixels_per_row * Chunk::WIDTH;
-    assert(pitch == pixels_per_row);
-
-    auto chunkToId = [](const int c, const long x, const long y) {
-        const long chunk_row = c / 8;
-        const long chunk_col = (c % 8) * 2;
-        long base = chunk_row * pixels_per_chunk_row;
-        base += y * pixels_per_row;
-        base += chunk_col * Chunk::WIDTH;
-        base += x;
-        return base;
-    };
-
-    for (const int chunk_to_update : gameData.chunksToUpdate()) {
-        // SDL_Rect chunk_area {
-        //     .x = (chunk_to_update%8)*Chunk::WIDTH*2,
-        //     .y = (chunk_to_update/8)*Chunk::WIDTH,
-        //     .w = 2 * Chunk::WIDTH,
-        //     .h = Chunk::WIDTH
-        // };
-
-        const auto pixels = gameData.chunks.getBytes(chunk_to_update, gameData.blocks, gameData.tileset);
-
-        for (int j = 0; j < Chunk::WIDTH; ++j) {
-            const auto& row = pixels[j];
-            for (int i = 0; i < Chunk::WIDTH; ++i) {
-                const u8 p = row[i];
-                const auto pixId = chunkToId(chunk_to_update, i, j);
-                SDLpixels[pixId] = p;
-                SDLpixels[pixId+Chunk::WIDTH] = p+0x40;
-            }
-        }
-    }
-
-    SDL_UnlockTexture(chunks_texture);
-    return true;
-}
-
-/*
-def getAddr(x):
-    bytes = [''.join(x) for x in itertools.batched(f'{x:032b}', 8)]
-    a13 = bytes[0][2:]
-    a7 = bytes[1]
-    a15 = bytes[3][-2:]
-    print(bytes)
-    print(a15)
-    print(a13)
-    print(a7)
-    print('0b' + a15 + a13 + a7)
-    return eval('0b' + a15 + a13 + a7)
- */
-
-/*
-x = [
-0.000123,
-0.000038,
-0.000014,
-0.000222,
-0.000087,
-0.000026,
-0.000218,
-0.000016,
-0.001421,
-0.007397,
-0.000935,
-0.000020,
-0.000002,
-0.002207,
-0.198611,
-]
-
-x[-1] - sum(x[:-1])
- */
 
 
 static float progress = 0.0f;

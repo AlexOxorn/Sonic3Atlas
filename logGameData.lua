@@ -117,12 +117,10 @@ function dontCare()
 end
 
 
-
 event.on_bus_write (function (addr, val, flags)
     -- Auto Inc Register
     if (val >= 0x8F00 and val < 0x9000) then
         VDP_mock.AUTO_INC = val & (0xFF)
-        --print(string.format("%x: Set auto inc %d", val, VDP_mock.AUTO_INC))        return
     end
 
     -- CD0 = 1
@@ -142,8 +140,6 @@ event.on_bus_write (function (addr, val, flags)
     local address_low = (val & B_ADDR_L) >> S_ADDR_L;
     local address_high = (val & B_ADDR_H) << S_ADDR_H;
 
-    --print(string.format("%x: Set addr to %x", val, address_high + address_low))
-
     VDP_mock.CARE = true
     VDP_mock.ADDRESS = address_high + address_low
     VDP_mock.WRITE = true
@@ -155,7 +151,6 @@ end, VDP_control_port)
 event.on_bus_write (function (addr, val, flags)
     if (not VDP_mock.CARE) then return end
     MarkVRAM()
-    --print(string.format("Marking addr %x", VDP_mock.ADDRESS))
     VDP_mock.ADDRESS = VDP_mock.ADDRESS + VDP_mock.AUTO_INC
 end, VDP_data_port);
 
@@ -226,16 +221,11 @@ function bytes_to_string(bytes)
 end
 
 function readBytesToString(addr, len, scope)
-    return bytes_to_string(memory.read_bytes_as_array(addr, len, scope))
-end
-
-function read_layout()
-    s = ""
-    for i = 1, Bounds do
-        s = s .. bytes_to_string(
-            memory.read_bytes_as_array(SSMap + (i - 1) * Bounds, Bounds))
+    if (memory.read_bytes_as_binary_string == nil) then
+        return bytes_to_string(memory.read_bytes_as_array(addr, len, scope))
+    else
+        return memory.read_bytes_as_binary_string(addr, len, scope)
     end
-    return s
 end
 
 function int_to_bytes(int, width)
@@ -293,8 +283,6 @@ function Connection:new(useFile, filename)
         end)
     end
 
-
-
     self.chunk_checksum = nil
     self.tile_cache = {}
     self.vram_hash_cache = {}
@@ -313,19 +301,6 @@ function Connection:new(useFile, filename)
     self.lag = false
 
     return o
-end
-
-function Connection:check_chunks_sum(numbers)
-    local sum = 0
-    for _, value in ipairs(numbers) do
-        sum = sum + value
-    end
-
-    if sum ~= self.chunk_checksum then
-        self.chunk_checksum = sum
-        return true
-    end
-    return false
 end
 
 function Connection:send_ring_placement()
@@ -385,22 +360,6 @@ function Connection:send_palette_ram()
     self.client:send(water_data)
 end
 
-function sum(numbers)
-    local sum = 0
-    for _, value in ipairs(numbers) do
-        sum = sum + value
-    end
-    return sum
-end
-
-local function compare_byte_tables_subtable(t1, t2, start, stop)
-    for i = start, stop do
-        if t1[i] ~= t2[i] then return false end
-    end
-
-    return true
-end
-
 function Connection:send_full_vram()
     str_data = readBytesToString(0x0000, 65536, 'VRAM')
     self.client:send('TILE_TST')
@@ -427,9 +386,6 @@ function Connection:send_vram_updates()
             local high = rng[2] // 0x20 + 1;
             if high >= 2047 then high = 2047 end
             local size = high - low + 1
-
-            --print(string.format("Writing %d tiles from tile index %x to %x", size, low, high))
-            --print(string.format("Writing %d tiles from addr %x to %x", size, low*0x20, high * 0x20))
 
             self.client:send('VRAM_SET')
             self.client:send(int_to_bytes(low, 2))
@@ -523,21 +479,6 @@ function Connection:send_level_data_full()
     self.level_data_checksum_A = level_hash
     self:send_level_data()
     self:send_level_data_sub()
-end
-
-function Connection:send_sonic_object()
-    local sonic_object_entry = readBytesToString(0xB000, 0x28, '68K RAM')
-    local mapping_base = memory.read_u32_be(0xB00C, '68K RAM')
-    local anim_frame = memory.read_u8(0xB022, '68K RAM')
-    local mapping_offset = memory.read_u16_be(mapping_base + (anim_frame * 2))
-    local mapping_size = memory.read_u16_be(mapping_base + mapping_offset)
-
-    local mapping_data = readBytesToString(mapping_base + mapping_offset + 2, 6 * mapping_size)
-
-    self.client:send('SPRITE_1')
-    self.client:send(sonic_object_entry)
-    self.client:send(int_to_bytes(mapping_size, 2))
-    self.client:send(mapping_data)
 end
 
 function Connection:send_sprite_at(head)
@@ -656,18 +597,6 @@ function Connection:send_screen_position()
     self.client:send(int_to_bytes(memory.read_u16_be(PLANE_B_Y, '68K RAM'), 2))
 end
 
-function Connection:send_h_int_lines()
-    tmp = event.onmemoryexecute(
-        function(a, b, c)
-            self.client:send('HINTLINE')
-            self.client:send(int_to_bytes(memory.read_s16_be(H_INTERRUPT_COUNT, '68K RAM'), 2))
-            connection:send_screen_position()
-        end
-    , H_INTERRUPT_JUMP, nil, "M68K BUS")
-    emu.frameadvance()
-    event.unregisterbyid(tmp)
-end
-
 function Connection:scroll_offsets()
     self.client:send('H_SCROLL')
     self.client:send(
@@ -687,8 +616,6 @@ end
 
 function Connection:wait_for_response()
     self.client:send("DONE____")
-    -- local tmp = self.client:receive(4)
-    -- print(tmp)
 end
 
 function Connection:ring_mappings()
@@ -759,15 +686,7 @@ function Connection:send_vram()
 end
 
 
-
--- print(event.availableScopes())
--- print(memory.getmemorydomainlist())
--- print(emu.getregisters())
--- exit()
-
 connection = Connection:new(true, "Demos.bin")
-
--- connection:send_h_int_lines()
 
 FRAME_LOOP = 0
 render_sprite = false
@@ -777,12 +696,6 @@ render_else = false
 connection:ring_mappings()
 connection:send_full_vram()
 connection:send_vram()
-
---time sprites: 0.002380
---time tileset: 0.037472
---time blockmap: 0.001832
---time chunkmap: 0.010070
---time level_data: 0.001224
 
 local c1 = event.on_bus_exec(function(addr, val, flags)
     if render_sprite then
@@ -797,17 +710,12 @@ local c2 = event.on_bus_exec(function(addr, val, flags)
         render_vram = false
     end
 end, 0x15B8)
---local c2 = event.on_bus_exec(function(addr, val, flags)
---    connection.client:send('LAGFRAME')
---end, 0x608)
 local c3 = event.on_bus_exec(function (addr, val, flags)
     connection:DMAQueueAddCallback()
 end, DMA_QUEUE_ADD_EXEC_ADDR)
 
 while true do
     timeFunction(false, 'Total Frame', function() emu.frameadvance() end)
-    --print('')
-    --emu.frameadvance()
     for i=1, FRAME_LOOP do
         emu.frameadvance()
     end

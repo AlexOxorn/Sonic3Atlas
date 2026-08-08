@@ -25,6 +25,60 @@
 #include <unistd.h>
 #include <unordered_set>
 
+/*
+
+==============
+COMMON METHODS
+==============
+
+-------------------------------------
+static T fromSocket(FILE* dataStream)
+-------------------------------------
+Constructs a T using the data from a file pointer.
+Used to deserialize data coming from the Game Data
+Log file
+
+
+--------------------------
+pixelType build_bytes(...)
+--------------------------
+Use to construct a raw 2D array of color indexes
+representing the pixels for a given Cell type
+
+
+-----------------------
+pixelType getBytes(...)
+-----------------------
+If the cell's pixel data already exists in the
+respective static cache, return the cached pixels.
+
+Otherwise, call the appropriate build_bytes(...),
+the cache and return the result.
+
+========================
+Caching
+========================
+Caches are used when building raw bytes
+so that repeated blocks/tiles/etc need not be
+recomputed each time.
+
+Cache's are cleared at the start of
+each frame so that the any bytes requested
+will always have up to date tile data
+
+========================
+Chunk Dependencies
+========================
+When creating new chunks, create a map between
+between every tile and which chunks use them.
+
+This allows us only update the Master Chunk Texture
+for chunks that actually need updating
+
+`gameData.newly_updated_tiles()` should be added to
+whenever a tile is updated, and only cleared, after
+rendering is complete.
+*/
 
 struct BlockMap;
 struct BatCell;
@@ -935,20 +989,13 @@ struct RenderingData {
     s16 screen_max_x;
     s16 screen_max_y;
 
-    std::vector<u8> chunk_pixels;
-
+    // ============================================
+    // Used to track which chunks use each tile
+    // So that what tiles are partially updated,
+    // Only *some* of the chunks need to be rebuilt
+    // ============================================
     std::vector<std::set<int>> tileChunkDependencies;
     std::set<int> newly_updated_tiles;
-
-    u16 currentZoneAct;
-    u16 bgEvent;
-    u16 fgEvent;
-    u16 bgEventVar;
-    std::array<u16, 6> fgEventVars;
-    u16 lbzDeathEggEvent;
-    u16 gamePaused;
-    u16 lagFrames;
-
     void setChunkDependecies() {
         tileChunkDependencies.clear();
         tileChunkDependencies.resize(tileset.tiles.size());
@@ -966,10 +1013,21 @@ struct RenderingData {
         for (auto c :
             newly_updated_tiles |
             stdv::transform([this](const int i) { return tileChunkDependencies[i]; })) {
-                result.merge(c);
-        }
+            result.merge(c);
+            }
         return result;
     };
+
+
+    u16 currentZoneAct;
+    u16 bgEvent;
+    u16 fgEvent;
+    u16 bgEventVar;
+    std::array<u16, 6> fgEventVars;
+    u16 lbzDeathEggEvent;
+    u16 gamePaused;
+    u16 lagFrames;
+
 
     static void clearCaches() {
         BlockMap::computed_pixels.reset();
