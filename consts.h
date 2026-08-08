@@ -176,9 +176,13 @@ extern SDL_Texture* rings_texture;
 extern SDL_Texture* rings_texture_water;
 extern SDL_Texture* ffmpeg_texture;
 extern SDL_Texture* translucency_mask_texture;
+extern SDL_Texture* make_transparent_mask;
+extern SDL_Texture* fullscreen_texture;
 extern SDL_Window    *window;
 extern SDL_Renderer  *renderer;
 extern SDL_BlendMode transparencyBlend;
+extern SDL_BlendMode mixTwoHalfBlend;
+extern SDL_BlendMode makeTransparentBlend;
 
 #define level_texture_low (level_textures[0])
 #define level_texture_high (level_textures[LEVEL_HIGH])

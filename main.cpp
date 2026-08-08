@@ -630,31 +630,7 @@ static bool fullChunkUpdate() {
         for (auto row : zip_array(chunks)) {
             for (auto [rowCount, subrow] : row | stdv::enumerate) {
                 for (int k = 0; k < subrow.size(); ++k) {
-                    // LEFT MOST PIXEL IS TRANSPARENT BUT NEIGHBOUR ISN'T
-                    if (k == 0 && subrow[k] == 0 && subrow[k+1] != 0) {
-                        *SDLpixels = subrow[k+1] + (rowCount % 2 ? 0x40 : 0);
-                        setMaskBit(SDLpixels);
-                        setMaskBit(SDLpixels+1);
-                        ++SDLpixels;
-                    }
-                    // TRANSPARENT PIXEL SURROUNDED BY IDENTICAL NON TRANSPARENT PIXEL
-                    else if (k>0 && k < 127 && subrow[k] == 0 && subrow[k+1] != 0 && subrow[k-1] != 0) {
-                        *SDLpixels = subrow[k-1] + (rowCount % 2 ? 0x40 : 0);
-                        setMaskBit(SDLpixels-1);
-                        setMaskBit(SDLpixels);
-                        setMaskBit(SDLpixels+1);
-                        ++SDLpixels;
-                    }
-                    // RIGHT MOST PIXEL IS TRANSPARENT BUT NEIGHBOUR ISN'T
-                    else if (k==127 && subrow[k] == 0 && subrow[k-1] != 0) {
-                        *SDLpixels = subrow[k-1] + (rowCount % 2 ? 0x40 : 0);
-                        setMaskBit(SDLpixels);
-                        setMaskBit(SDLpixels-1);
-                        ++SDLpixels;
-                    }
-                    else {
-                        *SDLpixels++ = subrow[k] + (rowCount % 2 ? 0x40 : 0);
-                    }
+                    *SDLpixels++ = subrow[k] + (rowCount % 2 ? 0x40 : 0);
                 }
             }
         }
@@ -1003,6 +979,10 @@ static bool render_master_texture() {
         src.y = 0.0f;
     }
 
+    SDL_SetRenderTarget(renderer, fullscreen_texture);
+
+    SDL_SetRenderDrawColor(renderer, 32, 0, 32, SDL_ALPHA_OPAQUE);
+    SDL_RenderClear(renderer);
     SDL_SetRenderDrawColor(renderer, 0, 0, 64, 128);
     const SDL_FRect water_area{
         .x = 0,
@@ -1011,13 +991,51 @@ static bool render_master_texture() {
         .h = static_cast<float>(RENDER_HEIGHT)
     };
 
-    SDL_RenderFillRect(renderer, &water_area);
+    if (gameData.has_water)
+        SDL_RenderFillRect(renderer, &water_area);
 
     for (int i = 0; i < RENDER_TARGET_COUNT; ++i) {
         if (renderFlags & (1 << i)) {
             SDL_RenderTexture(renderer, *texturesToRender[i], &src, &dst);
         }
     }
+
+
+    SDL_FRect full_src = {
+        .x = 0,
+        .y = 0,
+        .w = static_cast<float>(RENDER_WIDTH),
+        .h = static_cast<float>(RENDER_HEIGHT)
+    };
+
+    SDL_RenderTexture(renderer, make_transparent_mask, &full_src, &dst);
+
+    SDL_SetRenderTarget(renderer, nullptr);
+
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, SDL_ALPHA_OPAQUE);
+    SDL_RenderClear(renderer);
+
+    SDL_SetTextureBlendMode(fullscreen_texture, SDL_BLENDMODE_NONE);
+    SDL_RenderTexture(renderer, fullscreen_texture, &full_src, &dst);
+    dst.x += 1;
+    SDL_SetTextureBlendMode(fullscreen_texture, mixTwoHalfBlend);
+    SDL_RenderTexture(renderer, fullscreen_texture, &full_src, &dst);
+
+    SDL_FRect screenDim = {
+        .x = static_cast<float>(gameData.screen_position_A.first - scrollX),
+        .y = static_cast<float>(gameData.screen_position_A.second - scrollY),
+        .w = static_cast<float>(GENESIS_RESOLUTION.first),
+        .h = static_cast<float>(GENESIS_RESOLUTION.second)
+    };
+    SDL_SetRenderDrawColor(renderer, 255, 0, 0, SDL_ALPHA_OPAQUE);
+    SDL_RenderRect(renderer, &screenDim);
+    screenDim.x -= 1;
+    screenDim.y -= 1;
+    screenDim.w += 2;
+    screenDim.h += 2;
+    SDL_RenderRect(renderer, &screenDim);
+
+
     return true;
 }
 
@@ -1102,19 +1120,21 @@ extern "C" SDL_AppResult SDL_AppIterate(void *appstate) {
         }
     }
 
-    scrollX = static_cast<float>(gameData.scroll_x - RENDER_WIDTH/2);
-    if (scrollX < 0)
-        scrollX = 0;
-    if (scrollX >= gameData.level_chunks[0].size() * Chunk::WIDTH - RENDER_WIDTH)
-        scrollX = gameData.level_chunks[0].size() * Chunk::WIDTH - RENDER_WIDTH;
+    if (gameData.scroll_x > 0 && gameData.scroll_y > 0) {
+        scrollX = static_cast<float>(gameData.scroll_x - RENDER_WIDTH/2);
+        if (scrollX < 0)
+            scrollX = 0;
+        if (scrollX >= gameData.level_chunks[0].size() * Chunk::WIDTH - RENDER_WIDTH)
+            scrollX = gameData.level_chunks[0].size() * Chunk::WIDTH - RENDER_WIDTH;
 
-    if (gameData.level_chunks.size() * 128 <= RENDER_HEIGHT) {
-        scrollY = 0;
-    } else {
-        scrollY = static_cast<float>(gameData.scroll_y - RENDER_HEIGHT/2);
-    }
-    if (gameData.screen_min_y < 0 && scrollY < 0) {
-        scrollY += gameData.vertical_loop;
+        if (gameData.level_chunks.size() * 128 <= RENDER_HEIGHT) {
+            scrollY = 0;
+        } else {
+            scrollY = static_cast<float>(gameData.scroll_y - RENDER_HEIGHT/2);
+        }
+        if (gameData.screen_min_y < 0 && scrollY < 0) {
+            scrollY += gameData.vertical_loop;
+        }
     }
 
 
@@ -1140,8 +1160,6 @@ extern "C" SDL_AppResult SDL_AppIterate(void *appstate) {
         if constexpr (!FFMPEG_OUTPUT_RESOLUTION) {
             SDL_SetRenderTarget(renderer, ffmpeg_texture);
         }
-        SDL_SetRenderDrawColor(renderer, 32, 0, 32, SDL_ALPHA_OPAQUE);
-        SDL_RenderClear(renderer);
         success = render_master_texture();
         if (previousFrame)
             SDL_DestroySurface(previousFrame);
@@ -1153,8 +1171,6 @@ extern "C" SDL_AppResult SDL_AppIterate(void *appstate) {
         fwrite(previousFrame->pixels, 1, FFMPEG_BYTES_PER_FRAME, ffmpegProcess);
         return SDL_APP_CONTINUE;
     } else {
-        SDL_SetRenderDrawColor(renderer, 32, 0, 32, SDL_ALPHA_OPAQUE);
-        SDL_RenderClear(renderer);
         success = render_master_texture();
         SDL_SetRenderLogicalPresentation(renderer, RENDER_WIDTH, RENDER_HEIGHT, SDL_LOGICAL_PRESENTATION_DISABLED);
         if (!renderMessages(delta_time)) {

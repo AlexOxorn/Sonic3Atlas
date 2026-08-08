@@ -21,18 +21,39 @@ SDL_Texture* rings_texture_water = nullptr;
 SDL_Texture* ffmpeg_texture = nullptr;
 SDL_Texture* translucency_mask_texture = nullptr;
 SDL_GPUDevice* device = nullptr;
-
+SDL_Texture* make_transparent_mask = nullptr;
+SDL_Texture* fullscreen_texture = nullptr;
 
 SDL_Window    *window             = nullptr;
 SDL_Renderer  *renderer           = nullptr;
 
-/* dstRGB = dstRGB  ;  dstA = srcA  */
+/* dstRGB = dstRGB  ;  dstA = dstA * srcA  */
 SDL_BlendMode transparencyBlend = SDL_ComposeCustomBlendMode(
     SDL_BLENDFACTOR_ZERO,
     SDL_BLENDFACTOR_ONE,
     SDL_BLENDOPERATION_ADD,
     SDL_BLENDFACTOR_DST_ALPHA,
     SDL_BLENDFACTOR_ZERO,
+    SDL_BLENDOPERATION_ADD
+    );
+
+/* dstRGB = dstRGB  ;  dstA = srcA  */
+SDL_BlendMode makeTransparentBlend = SDL_ComposeCustomBlendMode(
+    SDL_BLENDFACTOR_ZERO,
+    SDL_BLENDFACTOR_ONE,
+    SDL_BLENDOPERATION_ADD,
+    SDL_BLENDFACTOR_ONE,
+    SDL_BLENDFACTOR_ZERO,
+    SDL_BLENDOPERATION_ADD
+    );
+
+/* dstRGB = .5 dstRGB + .5 srcRGB ;  dstA = 1 (.5 + .5)  */
+SDL_BlendMode mixTwoHalfBlend = SDL_ComposeCustomBlendMode(
+    SDL_BLENDFACTOR_DST_ALPHA,
+    SDL_BLENDFACTOR_DST_ALPHA,
+    SDL_BLENDOPERATION_ADD,
+    SDL_BLENDFACTOR_ZERO,
+    SDL_BLENDFACTOR_ONE,
     SDL_BLENDOPERATION_ADD
     );
 

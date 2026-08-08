@@ -89,6 +89,36 @@ bool initDestTextures() {
     }
     SDL_SetTextureScaleMode(sprite_tmp_texture, SDL_SCALEMODE_LINEAR);
 
+    make_transparent_mask = SDL_CreateTexture(renderer,
+        SDL_PIXELFORMAT_RGBA32,
+        SDL_TEXTUREACCESS_TARGET,
+        SCREEN_TEXTURE_WIDTH,
+        SCREEN_TEXTURE_HEIGHT
+        );
+    if (!make_transparent_mask) {
+        SDL_Log("Couldn't create make_transparent_mask texture: %s", SDL_GetError());
+        return false;
+    }
+    SDL_SetTextureScaleMode(make_transparent_mask, SDL_SCALEMODE_LINEAR);
+    SDL_SetTextureBlendMode(make_transparent_mask, makeTransparentBlend);
+
+    SDL_SetRenderTarget(renderer, make_transparent_mask);
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 127);
+    SDL_RenderClear(renderer);
+    SDL_SetRenderTarget(renderer, nullptr);
+
+    fullscreen_texture = SDL_CreateTexture(renderer,
+        SDL_PIXELFORMAT_RGBA32,
+        SDL_TEXTUREACCESS_TARGET,
+        SCREEN_TEXTURE_WIDTH,
+        SCREEN_TEXTURE_HEIGHT
+        );
+    if (!fullscreen_texture) {
+        SDL_Log("Couldn't create fullscreen_texture texture: %s", SDL_GetError());
+        return false;
+    }
+    SDL_SetTextureScaleMode(fullscreen_texture, SDL_SCALEMODE_LINEAR);
+
     return true;
 
 }

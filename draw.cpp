@@ -61,11 +61,11 @@ static bool drawFrame(
             renderEntry(index, src, dest);
         }
         // Under Water
-        if (relativeWaterLine <= 0) {
+        if (gameData.has_water && relativeWaterLine <= 0) {
             src.x += SpriteMappingEntry::WIDTH;
             renderEntry(index, src, dest);
         }
-        if (0 < relativeWaterLine && relativeWaterLine < SPRITE_WIDTH) {
+        if (gameData.has_water && 0 < relativeWaterLine && relativeWaterLine < SPRITE_WIDTH) {
             if (flip & SDL_FLIP_VERTICAL) {
                 const auto init_h = dest.h;
                 const int modifiedRelativeWater = SPRITE_WIDTH - relativeWaterLine;
@@ -372,7 +372,7 @@ static bool drawPlane(const std::vector<std::vector<u8>>& chunks, const int chun
         dest.y = static_cast<float>((rowIndex_base - topmostChunk) * Chunk::WIDTH);
 
         const bool land = dest.y < water_line_coord;
-        const bool water = dest.y + dest.h >= water_line_coord;
+        const bool water = dest.y + dest.h >= water_line_coord && gameData.has_water;
 
         if (water && land) {
             dest.h = water_line_coord - dest.y;
