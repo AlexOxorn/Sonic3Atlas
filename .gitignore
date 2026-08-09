@@ -1,5 +1,4 @@
 *.mp4
-vendored/
 Sonic3Atlus.code-workspace
 *.py
 output/
