@@ -371,7 +371,7 @@ static bool drawPlane(const std::vector<std::vector<u8>>& chunks, const int chun
         const int rowIndex = rowIndex_base + chunkYOffset;
         dest.y = static_cast<float>((rowIndex_base - topmostChunk) * Chunk::WIDTH);
 
-        const bool land = dest.y < water_line_coord;
+        const bool land = dest.y < water_line_coord || !gameData.has_water;
         const bool water = dest.y + dest.h >= water_line_coord && gameData.has_water;
 
         if (water && land) {

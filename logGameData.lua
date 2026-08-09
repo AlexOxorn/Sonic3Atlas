@@ -686,7 +686,7 @@ function Connection:send_vram()
 end
 
 
-connection = Connection:new(true, "Demos.bin")
+connection = Connection:new(true, "03-Draft.bin")
 
 FRAME_LOOP = 0
 render_sprite = false

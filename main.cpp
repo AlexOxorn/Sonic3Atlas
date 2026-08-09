@@ -334,6 +334,7 @@ static s32 getNextFrame(FILE* fd) {
     size_t count;
     s32 flags = 0;
     while ((count = recvStrict(fd, msg, 8)) > 0) {
+        // printf("msg: %8s\n", msg);
         if (strncmp(msg, "SCRN_POS", 8) == 0) {
             recvStrict(fd, &gameData.screen_position_A.first, 2);
             recvStrict(fd, &gameData.screen_position_A.second, 2);
@@ -479,8 +480,9 @@ static s32 getNextFrame(FILE* fd) {
             // flags |= GAME_PAUSED * static_cast<bool>(gameData.gamePaused);
         }
         else if (strncmp(msg, "DONE____", 8) == 0) {
-            if (!gameData.gamePaused)
+            if (!gameData.gamePaused && !gameData.level_chunks.empty()) {
                 return flags;
+            }
         }
         else if (strncmp(msg, "LAGFRAME", 8) == 0) {
             // return flags | LAG_FRAME;
@@ -500,21 +502,6 @@ static std::vector<std::string> binFiles;
 static int fileIndex = 0;
 
 static bool init_renderer() {
-    device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV, true, "vulkan");
-    if (!device) {
-        SDL_Log("Couldn't create GPU device: %s", SDL_GetError());
-        return false;
-    }
-
-    if (!SDL_ClaimWindowForGPUDevice(device, window)) {
-        SDL_Log("Couldn't claim GPU device: %s", SDL_GetError());
-        return false;
-    };
-    int max = SDL_GetNumRenderDrivers();
-    for (int i = 0; i < max; i++) {
-        printf("Renderer Options: %s\n", SDL_GetRenderDriver(i));
-    }
-
     renderer = SDL_CreateRenderer(/*device, */window, nullptr);
     printf("Renderer Name %s\n", SDL_GetRendererName(renderer));
     if (!renderer) {
@@ -730,12 +717,14 @@ extern "C" SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event)
             fileIndex += 1;
             fileIndex %= static_cast<int>(binFiles.size());
             operFile(fileIndex);
+            gameData = RenderingData{};
             FileChangeMsgTimer = 3.0f;
         }
         if (event->key.key == SDLK_N) {
             fileIndex -= 1;
             fileIndex = fileIndex < 0 ? fileIndex + static_cast<int>(binFiles.size()) : fileIndex;
             operFile(fileIndex);
+            gameData = RenderingData{};
             FileChangeMsgTimer = 3.0f;
         }
         RENDER_TOGGLE_EVENT(1);
@@ -786,7 +775,7 @@ static updateResult update_data() {
         flags &= ~LAG_FRAME;
     }
 
-    if (auto new_resolution = level_size_to_resolution();new_resolution != INTERNAL_RESOLUTION) {
+    if (auto new_resolution = level_size_to_resolution(); new_resolution != INTERNAL_RESOLUTION) {
         INTERNAL_RESOLUTION = new_resolution;
         SDL_SetRenderLogicalPresentation(renderer, RENDER_WIDTH, RENDER_HEIGHT, SDL_LOGICAL_PRESENTATION_OVERSCAN);
         initDestTextures();
@@ -1047,13 +1036,18 @@ extern "C" SDL_AppResult SDL_AppIterate(void *appstate) {
         scrollX = static_cast<float>(gameData.scroll_x - RENDER_WIDTH/2);
         if (scrollX < 0)
             scrollX = 0;
-        if (scrollX >= gameData.level_chunks[0].size() * Chunk::WIDTH - RENDER_WIDTH)
-            scrollX = gameData.level_chunks[0].size() * Chunk::WIDTH - RENDER_WIDTH;
+        if (!gameData.level_chunks.empty()) {
+            if (scrollX >= gameData.level_chunks[0].size() * Chunk::WIDTH - RENDER_WIDTH)
+                scrollX = gameData.level_chunks[0].size() * Chunk::WIDTH - RENDER_WIDTH;
 
-        if (gameData.level_chunks.size() * 128 <= RENDER_HEIGHT) {
-            scrollY = 0;
+            if (gameData.level_chunks.size() * 128 <= RENDER_HEIGHT) {
+                scrollY = 0;
+            } else {
+                scrollY = static_cast<float>(gameData.scroll_y - RENDER_HEIGHT/2);
+            }
         } else {
-            scrollY = static_cast<float>(gameData.scroll_y - RENDER_HEIGHT/2);
+            scrollX = 0;
+            scrollY = 0;
         }
         if (gameData.screen_min_y < 0 && scrollY < 0) {
             scrollY += gameData.vertical_loop;
@@ -1067,6 +1061,9 @@ extern "C" SDL_AppResult SDL_AppIterate(void *appstate) {
 
     if constexpr (FFMPEG_DATA) {
         if (previousFrame) {
+            if (gameData.lagFrames && gameData.level_chunks.size() > 0) {
+                printf("\nLAG x %d\n", gameData.lagFrames);
+            }
             for (int i = 0; i < gameData.lagFrames; ++i) {
                 fwrite(previousFrame->pixels, 1, FFMPEG_BYTES_PER_FRAME, ffmpegProcess);
             }
@@ -1079,33 +1076,23 @@ extern "C" SDL_AppResult SDL_AppIterate(void *appstate) {
         return SDL_APP_FAILURE;
     }
 
+
+    success = render_master_texture();
+    SDL_SetRenderLogicalPresentation(renderer, RENDER_WIDTH, RENDER_HEIGHT, SDL_LOGICAL_PRESENTATION_DISABLED);
+    if (!renderMessages(delta_time)) {
+        return SDL_APP_FAILURE;
+    }
+    SDL_SetRenderLogicalPresentation(renderer, RENDER_WIDTH, RENDER_HEIGHT, SDL_LOGICAL_PRESENTATION_OVERSCAN);
+
     if constexpr (FFMPEG_DATA) {
-        if constexpr (!FFMPEG_OUTPUT_RESOLUTION) {
-            SDL_SetRenderTarget(renderer, ffmpeg_texture);
-        }
-        success = render_master_texture();
         if (previousFrame)
             SDL_DestroySurface(previousFrame);
         previousFrame = SDL_RenderReadPixels(renderer, nullptr);
-
-        SDL_SetRenderTarget(renderer, nullptr);
-        SDL_RenderPresent(renderer);
-
         fwrite(previousFrame->pixels, 1, FFMPEG_BYTES_PER_FRAME, ffmpegProcess);
-        return SDL_APP_CONTINUE;
-    } else {
-        success = render_master_texture();
-        SDL_SetRenderLogicalPresentation(renderer, RENDER_WIDTH, RENDER_HEIGHT, SDL_LOGICAL_PRESENTATION_DISABLED);
-        if (!renderMessages(delta_time)) {
-            return SDL_APP_FAILURE;
-        }
-        SDL_SetRenderLogicalPresentation(renderer, RENDER_WIDTH, RENDER_HEIGHT, SDL_LOGICAL_PRESENTATION_OVERSCAN);
-        SDL_RenderPresent(renderer);
-
-
-
-        return success ? SDL_APP_CONTINUE : SDL_APP_FAILURE;
     }
+
+    SDL_RenderPresent(renderer);
+    return success ? SDL_APP_CONTINUE : SDL_APP_FAILURE;
 }
 
 
