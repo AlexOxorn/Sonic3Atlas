@@ -499,7 +499,7 @@ static s32 getNextFrame(FILE* fd) {
 }
 
 static std::vector<std::string> binFiles;
-static int fileIndex = 0;
+static long fileIndex = 0;
 
 static bool init_renderer() {
     renderer = SDL_CreateRenderer(/*device, */window, nullptr);
@@ -509,22 +509,13 @@ static bool init_renderer() {
         return false;
     }
 
-    SDL_SetRenderLogicalPresentation(renderer, RENDER_WIDTH, RENDER_HEIGHT, SDL_LOGICAL_PRESENTATION_OVERSCAN);
+    SDL_SetRenderLogicalPresentation(renderer, RENDER_WIDTH, RENDER_HEIGHT, PRESENTATION_MODE);
 
     //Enable VSync
     if( !SDL_SetRenderVSync( renderer, SDL_RENDERER_VSYNC_ADAPTIVE ) )
     {
         SDL_Log( "Could not enable VSync! SDL error: %s\n", SDL_GetError() );
         return false;
-    }
-
-    if constexpr (FFMPEG_DATA) {
-        ffmpeg_texture = SDL_CreateTexture(renderer,
-            SDL_PIXELFORMAT_RGBA32,
-            SDL_TEXTUREACCESS_TARGET,
-            RENDER_WIDTH,
-            RENDER_HEIGHT
-            );
     }
 
     transparency_mask_palette = SDL_CreatePalette(2);
@@ -545,7 +536,7 @@ static bool init_renderer() {
     return update_data() != UPDATE_FAILURE;
 }
 
-static bool operFile(int index) {
+static bool operFile(long index) {
     if (inputStream != nullptr) {
         fclose(inputStream);
     }
@@ -574,24 +565,96 @@ static bool operFileDirect(const char* filename) {
 extern "C" SDL_AppResult SDL_AppInit(void ** /*appstate*/, int  /*argc*/, char * argv[])
 {
     argv++;
+
+
+    for (const auto & entry : fs::directory_iterator("../SocketBins"))
+        binFiles.push_back(entry.path().string());
+
+    stdr::sort(binFiles);
+
+    if (binFiles.empty()) {
+        fprintf(stderr, "No bin files found\n");
+        return SDL_APP_FAILURE;
+    }
+
     while (*argv != nullptr) {
         printf("arg %s\n", *argv);
-        if (strcmp(*argv++, "--startFile") == 0) {
-            printf("file %s\n", *argv);
+        char* opt = *argv++;
+        if (strcmp(opt, "--file") == 0) {
             char* e;
-            fileIndex = static_cast<int>(std::strtol(*argv++, &e, 10));
+            fileIndex = static_cast<int>(std::strtol(*argv, &e, 10));
+            if (fileIndex == 0 && *e != 0) {
+                auto target = std::format("../SocketBins/{}", *argv);
+                auto iterIndex = stdr::find(binFiles, target);
+                if (iterIndex == binFiles.end()) {
+                    fprintf(stderr, "No bin file: '%s' found\n", *argv);
+                    exit(1);
+                }
+                fileIndex = iterIndex - binFiles.begin();
+            }
+            argv++;
         }
+
+        else if (strcmp(opt, "--ffmpeg") == 0) {
+            FFMPEG_OUT = *argv;
+            argv++;
+        }
+
+        else if (strcmp(opt, "--out_res") == 0) {
+            if (strcmp(*argv, "HD") == 0) {
+                OUTPUT_RESOLUTION = R_HD;
+            } else if (strcmp(*argv, "2K") == 0) {
+                OUTPUT_RESOLUTION = R_2K;
+            } else if (strcmp(*argv, "4K") == 0) {
+                OUTPUT_RESOLUTION = R_4K;
+            } else {
+                fprintf(stderr, "Unknown Resolution: %s\n", *argv);
+            }
+            argv++;
+        }
+
+        else if (strcmp(opt, "--in_res") == 0) {
+            if (strcmp(*argv, "HD") == 0) {
+                INTERNAL_RESOLUTION = R_HD;
+            } else if (strcmp(*argv, "2K") == 0) {
+                INTERNAL_RESOLUTION = R_2K;
+            } else if (strcmp(*argv, "4K") == 0) {
+                INTERNAL_RESOLUTION = R_4K;
+            } else if (strcmp(*argv, "max") == 0) {
+                dynamicResolution = true;
+            } else {
+                    fprintf(stderr, "Unknown Resolution: %s\n", *argv);
+            }
+            argv++;
+        }
+
+        else if (strcmp(opt, "--codec") == 0) {
+            FFMPEG_CODEC = *argv++;
+        } else {
+            fprintf(stderr, "Unknown Argument: %s\n", opt);
+        }
+    }
+
+    if (INTERNAL_RESOLUTION.first == 0 && OUTPUT_RESOLUTION.first == 0) {
+        if (!dynamicResolution) {
+            INTERNAL_RESOLUTION = R_2K;
+        }
+        OUTPUT_RESOLUTION = R_2K;
+    } else if (INTERNAL_RESOLUTION.first == 0) {
+        INTERNAL_RESOLUTION = OUTPUT_RESOLUTION;
+    } else if (OUTPUT_RESOLUTION.first == 0) {
+        OUTPUT_RESOLUTION = INTERNAL_RESOLUTION;
     }
 
     SDL_Surface *surface  = nullptr;
 
-    if constexpr (FFMPEG_DATA) {
-        auto [in, out] = *FFMPEG_DATA;
-        if (!operFileDirect(in)) {
-            fprintf(stderr, "Couldn't Open File\n");
-            return SDL_APP_FAILURE;
-        }
+    if (!operFile(fileIndex)) {
+        fprintf(stderr, "Couldn't Open File\n");
+        return SDL_APP_FAILURE;
+    }
 
+
+    if (FFMPEG_OUT) {
         const auto ffmpegCmd = std::format(
             "ffmpeg -y "
             "-f rawvideo "
@@ -599,38 +662,20 @@ extern "C" SDL_AppResult SDL_AppInit(void ** /*appstate*/, int  /*argc*/, char *
             "-s {}x{} "
             "-r 60 "
             "-i - "
-            "-c:v h264_nvenc "
+            "-c:v {} "
             "-b:v 80M "
-            // "-minrate:v 24M "
-            // "-maxrate:v 50M "
             "-pix_fmt yuv420p "
-            // "-vf scale=4096:-2 "
-            // "-vf \"scale=trunc(iw/2)*2:trunc(ih/2)*2\""
             "{}",
             FFMPEG_WIDTH,
             FFMPEG_HEIGHT,
-            out);
+            FFMPEG_CODEC,
+            FFMPEG_OUT);
         ffmpegProcess = popen(ffmpegCmd.c_str(), "w");
         if (!ffmpegProcess) {
             fprintf(stderr, "Couldn't Open POPEN: %d\n", errno);
             return SDL_APP_FAILURE;
         }
-    } else {
-        for (const auto & entry : fs::directory_iterator("../SocketBins"))
-            binFiles.push_back(entry.path().string());
-
-        stdr::sort(binFiles);
-
-        if (binFiles.empty()) {
-            fprintf(stderr, "No bin files found\n");
-            return SDL_APP_FAILURE;
-        }
-        if (!operFile(fileIndex)) {
-            fprintf(stderr, "Couldn't Open File\n");
-            return SDL_APP_FAILURE;
-        }
     }
-
 
 
     SDL_SetAppMetadata("Example Blending", "1.0", "com.example.blending");
@@ -669,7 +714,7 @@ extern "C" SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event)
         if (event->key.key == SDLK_ESCAPE) {
             return SDL_APP_SUCCESS;
         }
-        if constexpr (FFMPEG_DATA) {
+        if (FFMPEG_OUT) {
             return SDL_APP_CONTINUE;
         }
         if (event->key.key == SDLK_DOWN) {
@@ -775,10 +820,12 @@ static updateResult update_data() {
         flags &= ~LAG_FRAME;
     }
 
-    if (auto new_resolution = level_size_to_resolution(); new_resolution != INTERNAL_RESOLUTION) {
-        INTERNAL_RESOLUTION = new_resolution;
-        SDL_SetRenderLogicalPresentation(renderer, RENDER_WIDTH, RENDER_HEIGHT, SDL_LOGICAL_PRESENTATION_OVERSCAN);
-        initDestTextures();
+    if (dynamicResolution) {
+        if (auto new_resolution = level_size_to_resolution(); new_resolution != INTERNAL_RESOLUTION) {
+            INTERNAL_RESOLUTION = new_resolution;
+            SDL_SetRenderLogicalPresentation(renderer, RENDER_WIDTH, RENDER_HEIGHT, PRESENTATION_MODE);
+            initDestTextures();
+        }
     }
 
     if (flags & FRAME_EOF)
@@ -920,18 +967,23 @@ static bool render_master_texture() {
         .h = static_cast<float>(RENDER_HEIGHT)
     };
 
-    SDL_RenderTexture(renderer, make_transparent_mask, &full_src, &dst);
 
+    if (WINDOW_WIDTH < RENDER_WIDTH) {
+        SDL_RenderTexture(renderer, make_transparent_mask, &full_src, &dst);
+    }
     SDL_SetRenderTarget(renderer, nullptr);
 
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, SDL_ALPHA_OPAQUE);
     SDL_RenderClear(renderer);
 
     SDL_SetTextureBlendMode(fullscreen_texture, SDL_BLENDMODE_NONE);
-    SDL_RenderTexture(renderer, fullscreen_texture, &full_src, &dst);
-    dst.x += 1;
-    SDL_SetTextureBlendMode(fullscreen_texture, mixTwoHalfBlend);
-    SDL_RenderTexture(renderer, fullscreen_texture, &full_src, &dst);
+    SDL_RenderTexture(renderer, fullscreen_texture, &full_src, &full_src);
+
+    if (WINDOW_WIDTH < RENDER_WIDTH) {
+        dst.x += 1;
+        SDL_SetTextureBlendMode(fullscreen_texture, mixTwoHalfBlend);
+        SDL_RenderTexture(renderer, fullscreen_texture, &full_src, &full_src);
+    }
 
     SDL_FRect screenDim = {
         .x = static_cast<float>(gameData.screen_position_A.first - scrollX),
@@ -965,6 +1017,8 @@ std::vector<debugTimerMsgPair> messageData = {
     MSG_GEN_PAIR(2),
     MSG_GEN_PAIR(3),
     MSG_GEN_PAIR(4),
+    MSG_GEN_PAIR(5),
+    MSG_GEN_PAIR(6),
 };
 
 static bool renderMessages(float delta_time) {
@@ -1027,7 +1081,7 @@ extern "C" SDL_AppResult SDL_AppIterate(void *appstate) {
             fprintf(stderr, "Update Failure\n");
             return SDL_APP_FAILURE;
         }
-        if (FFMPEG_DATA && (res == UPDATE_EOF)) {
+        if (FFMPEG_OUT && (res == UPDATE_EOF)) {
             return SDL_APP_SUCCESS;
         }
     }
@@ -1059,7 +1113,7 @@ extern "C" SDL_AppResult SDL_AppIterate(void *appstate) {
     const auto ticks = SDL_GetTicks();
     const float seconds = static_cast<float>(ticks)/1000;
 
-    if constexpr (FFMPEG_DATA) {
+    if (FFMPEG_OUT) {
         if (previousFrame) {
             if (gameData.lagFrames && gameData.level_chunks.size() > 0) {
                 printf("\nLAG x %d\n", gameData.lagFrames);
@@ -1082,9 +1136,9 @@ extern "C" SDL_AppResult SDL_AppIterate(void *appstate) {
     if (!renderMessages(delta_time)) {
         return SDL_APP_FAILURE;
     }
-    SDL_SetRenderLogicalPresentation(renderer, RENDER_WIDTH, RENDER_HEIGHT, SDL_LOGICAL_PRESENTATION_OVERSCAN);
+    SDL_SetRenderLogicalPresentation(renderer, RENDER_WIDTH, RENDER_HEIGHT, PRESENTATION_MODE);
 
-    if constexpr (FFMPEG_DATA) {
+    if (FFMPEG_OUT) {
         if (previousFrame)
             SDL_DestroySurface(previousFrame);
         previousFrame = SDL_RenderReadPixels(renderer, nullptr);

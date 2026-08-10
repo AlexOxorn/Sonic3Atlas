@@ -37,10 +37,11 @@ constexpr std::pair<int, int> scale16(const std::pair<int, int> &in) {
 }
 
 constexpr inline std::pair GENESIS_RESOLUTION(320, 224);
+extern bool dynamicResolution;
 extern std::pair<int, int> INTERNAL_RESOLUTION;
-constexpr inline std::pair OUTPUT_RESOLUTION = R_2K;
-inline constexpr std::optional<std::pair<const char*, const char*>> FFMPEG_DATA = std::nullopt;
-// inline constexpr std::optional FFMPEG_DATA = std::pair{"../SocketBins/02-Draft1.bin", "../output/Zone1to2.mp4"};
+extern std::pair<int, int> OUTPUT_RESOLUTION;
+extern const char* FFMPEG_OUT;
+extern const char* FFMPEG_CODEC;
 
 #define WINDOW_WIDTH OUTPUT_RESOLUTION.first
 #define WINDOW_HEIGHT OUTPUT_RESOLUTION.second
@@ -149,9 +150,9 @@ extern u32 renderFlags;
 
 
 inline constexpr bool FFMPEG_OUTPUT_RESOLUTION = true;
-inline constexpr auto FFMPEG_WIDTH = FFMPEG_OUTPUT_RESOLUTION ? WINDOW_WIDTH : RENDER_WIDTH;
-inline constexpr auto FFMPEG_HEIGHT = FFMPEG_OUTPUT_RESOLUTION ? WINDOW_HEIGHT: RENDER_HEIGHT;
-inline constexpr auto FFMPEG_BYTES_PER_FRAME = FFMPEG_WIDTH * FFMPEG_HEIGHT * sizeof(u32);
+#define FFMPEG_WIDTH (FFMPEG_OUTPUT_RESOLUTION ? WINDOW_WIDTH : RENDER_WIDTH)
+#define FFMPEG_HEIGHT  (FFMPEG_OUTPUT_RESOLUTION ? WINDOW_HEIGHT: RENDER_HEIGHT)
+#define FFMPEG_BYTES_PER_FRAME  (FFMPEG_WIDTH * FFMPEG_HEIGHT * sizeof(u32))
 inline constexpr auto pixelsPerRow = 2 * MAPPING_ENTRY_PER_ROW * SpriteMappingEntry::WIDTH;
 
 constexpr inline auto RENDER_TARGET_COUNT = std::size(renderToggleNames);
@@ -214,5 +215,6 @@ extern FILE* inputStream;
 extern RenderingData gameData;
 extern std::string frameError;
 
+#define PRESENTATION_MODE ( RENDER_WIDTH > WINDOW_WIDTH ? SDL_LOGICAL_PRESENTATION_OVERSCAN : SDL_LOGICAL_PRESENTATION_DISABLED )
 
 #endif //SONIC3ATLUS_CONSTS_H

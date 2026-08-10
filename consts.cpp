@@ -107,4 +107,8 @@ FILE* inputStream = nullptr;
 RenderingData gameData;
 std::string frameError;
 
-std::pair<int, int> INTERNAL_RESOLUTION = scale16(R_FULL);
+std::pair<int, int> INTERNAL_RESOLUTION;
+std::pair<int, int> OUTPUT_RESOLUTION;
+const char* FFMPEG_OUT = nullptr;
+const char* FFMPEG_CODEC = "h264_nvenc";
+bool dynamicResolution = false;
