@@ -1080,7 +1080,7 @@ static bool render_master_texture() {
         .w = static_cast<float>(RENDER_WIDTH),
         .h = static_cast<float>(RENDER_HEIGHT)
     };
-
+    SDL_FRect full_dst = full_src;
 
     if (WINDOW_WIDTH < RENDER_WIDTH) {
         SDL_RenderTexture(renderer, make_transparent_mask, &full_src, &dst);
@@ -1094,9 +1094,9 @@ static bool render_master_texture() {
     SDL_RenderTexture(renderer, fullscreen_texture, &full_src, &full_src);
 
     if (WINDOW_WIDTH < RENDER_WIDTH) {
-        dst.x += 1;
+        full_dst.x += 1;
         SDL_SetTextureBlendMode(fullscreen_texture, mixTwoHalfBlend);
-        SDL_RenderTexture(renderer, fullscreen_texture, &full_src, &full_src);
+        SDL_RenderTexture(renderer, fullscreen_texture, &full_src, &full_dst);
     }
 
     SDL_FRect screenDim = {
