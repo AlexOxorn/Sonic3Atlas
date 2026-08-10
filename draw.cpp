@@ -606,6 +606,13 @@ static bool drawSelect(bool prio) {
             const bool y = prio ? AIZ_SHIP::drawShip() : true;
             return x && y;
         }
+        case LEVEL_ACT_EVENT(HYDRO_CITY_ZONE, 1, 0): {
+            // The start of Hydro City doesn't use the water palette for below the water line
+            // Instead using a unique above ground palette to simulate water being contained
+            if (gameData.water_line == 0x500)
+                gameData.water_line = 0x680;
+            return drawToLevelDefault(prio);
+        }
         default: {
             return drawToLevelDefault(prio);
         }

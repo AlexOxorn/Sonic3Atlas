@@ -549,23 +549,188 @@ static bool operFile(long index) {
     return true;
 }
 
-static bool operFileDirect(const char* filename) {
-    if (inputStream != nullptr) {
-        fclose(inputStream);
-    }
-    inputFD = open(filename, O_RDONLY);
-    if (inputFD < 0) {
-        fprintf(stderr, "OPEN ERROR %d\n", errno);
-        return false;
-    }
-    inputStream = fdopen(inputFD, "rb");
-    return true;
+static const char* HelpText = R"HELP(
+usage: ./Sonic3Atlus [options...]
+
+Options:
+    --file filename/index (default=0)
+        If an integer, start with the file with that index (ordered by lexicographical ascii) in the ../SocketBins folder
+        If a filename, start with the named file (which exists in the ../SoketBins folder)
+        Example "./Sonic3Atlus --file Demo.bin
+
+    --ffmpeg filename
+        Render the encoding to a video file `output/{filename}`.
+        Also disables some controls
+
+    --codec codec_library (default=h264_nvenc)
+        The video codec used by ffmpeg
+
+    --in_res resolution_name (default=2K)
+        Set the internal resolution of the encoding (effective zoom)
+        HD = 1920x1080
+        2K = 2560x1440
+        4K = 3840x2160
+        max = Dynamically adjust resolution to a 16:9 aspect ratio such that the
+              entire vertical span of the current level fits exactly
+
+    --out_res resolution_name (default=2K)
+        Set the output resolution (window size / encoded video resolution)
+        HD = 1920x1080
+        2K = 2560x1440
+        4K = 3840x2160
+
+    --res resolution_name (default=2K)
+        Set the both the internal and output resolution
+        HD = 1920x1080
+        2K = 2560x1440
+        4K = 3840x2160
+
+    --xoob option (default=clamp)
+        How to handle displaying levels horizontally out of bounds
+        clamp = Never scroll further left or right than the bounds of the level
+        (TBD) loop = Simulate Loopback
+        none = Show Out of Bounds as empty
+
+    --yoob option (default=clamp)
+        How to handle displaying levels vertically out of bounds
+        clamp = Never scroll further up or down than the bounds of the level
+        (TBD) loop = Simulate Sewers
+        none = Show Out of Bounds as empty
+
+Future Options:
+    --antiDither (on/off/default) (default: out_res < in_res ? on : off)
+        Simulate anti dither by blending screen with itself shifted 1 pixel right
+
+
+Keyboard Commands:
+    ESC: Quit the Program
+
+    (The following only works when NOT outputting to a video)
+
+    P: Increase speed by 1.5x
+    O: Decrease speed by 0.67x
+    I: Reset speed back to default
+    SPACE: Pause + Advance a single frame
+    PAUSE: Pause / Unpause
+    M: Cycle to next file from ../SocketBin
+    N: Cycle to previous file from ../SocketBin
+    Z: Skip to next level
+    1-7: Toggle displaying different layers
+)HELP";
+
+[[noreturn]] static void printHelp() {
+    fprintf(stderr, "%s", HelpText);
+    exit(1);
 }
+
+const std::unordered_map<std::string, std::pair<int, int>> ResolutionNames {
+    {"HD", R_HD},
+    {"2K", R_2K},
+    {"4K", R_4K},
+    {"max", {-1, -1}},
+};
+
+const std::unordered_map<std::string, OOB> LoopNames {
+    {"clamp", OOB::CLAMP},
+    {"loop", OOB::LOOP},
+    {"none", OOB::NONE},
+};
+
+static void set_file(const char* fileName) {
+    char* e;
+    fileIndex = static_cast<int>(std::strtol(fileName, &e, 10));
+    if (fileIndex == 0 && *e != 0) {
+        auto target = std::format("../SocketBins/{}", fileName);
+        auto iterIndex = stdr::find(binFiles, target);
+        if (iterIndex == binFiles.end()) {
+            fprintf(stderr, "No bin file: '%s' found\n", fileName);
+            exit(1);
+        }
+        fileIndex = iterIndex - binFiles.begin();
+    }
+}
+
+static void set_ffmpeg(const char* fileName) {
+    FFMPEG_OUT = fileName;
+}
+
+static void set_codec(const char* codecName) {
+    FFMPEG_CODEC = codecName;
+}
+
+static void set_internal_resolution(const char* resolutionName) {
+    const auto res = ResolutionNames.find(resolutionName);
+    if (res == ResolutionNames.end()) {
+        fprintf(stderr, "Unknown Resolution: %s\n", resolutionName);
+        exit(1);
+    }
+    if (res->second == std::pair{-1, -1}) { dynamicResolution = true; }
+    else { INTERNAL_RESOLUTION = res->second; }
+}
+
+static void set_output_resolution(const char* resolutionName) {
+    const auto res = ResolutionNames.find(resolutionName);
+    if (res == ResolutionNames.end() || res->second == std::pair{-1, -1}) {
+        fprintf(stderr, "Unknown Resolution: %s\n", resolutionName);
+        exit(1);
+    }
+    OUTPUT_RESOLUTION = res->second;
+}
+
+static void set_both_resolution(const char* resolutionName) {
+    if (resolutionName == nullptr) {
+        return;
+    }
+    const auto res = ResolutionNames.find(resolutionName);
+    if (res == ResolutionNames.end() || res->second == std::pair{-1, -1}) {
+        fprintf(stderr, "Unknown Resolution: %s\n", resolutionName);
+        exit(1);
+    }
+    INTERNAL_RESOLUTION = res->second;
+    OUTPUT_RESOLUTION = res->second;
+}
+static void set_xoob(const char* resolutionName) {
+    const auto mode = LoopNames.find(resolutionName);
+    if (mode == LoopNames.end()) {
+        fprintf(stderr, "Unknown loop mode: %s\n", resolutionName);
+        exit(1);
+    }
+    x_loop = mode->second;
+}
+static void set_yoob(const char* resolutionName) {
+    const auto mode = LoopNames.find(resolutionName);
+    if (mode == LoopNames.end()) {
+        fprintf(stderr, "Unknown loop mode: %s\n", resolutionName);
+        exit(1);
+    }
+    y_loop = mode->second;
+}
+
+static std::unordered_map<std::string_view, const char*> arguments = {
+    {"--file", "0"},
+    {"--ffmpeg", nullptr},
+    {"--codec", "h264_nvenc"},
+    {"--in_res", "2K"},
+    {"--out_res", "2K"},
+    {"--res", nullptr},
+    {"--xoob", "clamp"},
+    {"--yoob", "clamp"},
+};
+
+static std::unordered_map<std::string_view, void(*)(const char*)> arguments_setters = {
+    {"--file", set_file},
+    {"--ffmpeg", set_ffmpeg},
+    {"--codec", set_codec},
+    {"--in_res", set_internal_resolution},
+    {"--out_res", set_output_resolution},
+    {"--res", set_both_resolution},
+    {"--xoob", set_xoob},
+    {"--yoob", set_yoob},
+};
 
 extern "C" SDL_AppResult SDL_AppInit(void ** /*appstate*/, int  /*argc*/, char * argv[])
 {
     argv++;
-
 
     for (const auto & entry : fs::directory_iterator("../SocketBins"))
         binFiles.push_back(entry.path().string());
@@ -578,75 +743,24 @@ extern "C" SDL_AppResult SDL_AppInit(void ** /*appstate*/, int  /*argc*/, char *
     }
 
     while (*argv != nullptr) {
-        printf("arg %s\n", *argv);
         char* opt = *argv++;
-        if (strcmp(opt, "--file") == 0) {
-            char* e;
-            fileIndex = static_cast<int>(std::strtol(*argv, &e, 10));
-            if (fileIndex == 0 && *e != 0) {
-                auto target = std::format("../SocketBins/{}", *argv);
-                auto iterIndex = stdr::find(binFiles, target);
-                if (iterIndex == binFiles.end()) {
-                    fprintf(stderr, "No bin file: '%s' found\n", *argv);
-                    exit(1);
-                }
-                fileIndex = iterIndex - binFiles.begin();
-            }
-            argv++;
+
+        if (strcmp(opt, "--help") == 0) {
+            printHelp();
         }
 
-        else if (strcmp(opt, "--ffmpeg") == 0) {
-            FFMPEG_OUT = *argv;
-            argv++;
-        }
-
-        else if (strcmp(opt, "--out_res") == 0) {
-            if (strcmp(*argv, "HD") == 0) {
-                OUTPUT_RESOLUTION = R_HD;
-            } else if (strcmp(*argv, "2K") == 0) {
-                OUTPUT_RESOLUTION = R_2K;
-            } else if (strcmp(*argv, "4K") == 0) {
-                OUTPUT_RESOLUTION = R_4K;
-            } else {
-                fprintf(stderr, "Unknown Resolution: %s\n", *argv);
-            }
-            argv++;
-        }
-
-        else if (strcmp(opt, "--in_res") == 0) {
-            if (strcmp(*argv, "HD") == 0) {
-                INTERNAL_RESOLUTION = R_HD;
-            } else if (strcmp(*argv, "2K") == 0) {
-                INTERNAL_RESOLUTION = R_2K;
-            } else if (strcmp(*argv, "4K") == 0) {
-                INTERNAL_RESOLUTION = R_4K;
-            } else if (strcmp(*argv, "max") == 0) {
-                dynamicResolution = true;
-            } else {
-                    fprintf(stderr, "Unknown Resolution: %s\n", *argv);
-            }
-            argv++;
-        }
-
-        else if (strcmp(opt, "--codec") == 0) {
-            FFMPEG_CODEC = *argv++;
-        } else {
+        auto arg = arguments.find(opt);
+        if (arg == arguments.end()) {
             fprintf(stderr, "Unknown Argument: %s\n", opt);
+            exit(1);
         }
+
+        arg->second = *argv++;
     }
 
-    if (INTERNAL_RESOLUTION.first == 0 && OUTPUT_RESOLUTION.first == 0) {
-        if (!dynamicResolution) {
-            INTERNAL_RESOLUTION = R_2K;
-        }
-        OUTPUT_RESOLUTION = R_2K;
-    } else if (INTERNAL_RESOLUTION.first == 0) {
-        INTERNAL_RESOLUTION = OUTPUT_RESOLUTION;
-    } else if (OUTPUT_RESOLUTION.first == 0) {
-        OUTPUT_RESOLUTION = INTERNAL_RESOLUTION;
+    for (auto [arg, value] : arguments) {
+        arguments_setters[arg](value);
     }
-
-    SDL_Surface *surface  = nullptr;
 
     if (!operFile(fileIndex)) {
         fprintf(stderr, "Couldn't Open File\n");
@@ -1088,15 +1202,23 @@ extern "C" SDL_AppResult SDL_AppIterate(void *appstate) {
 
     if (gameData.scroll_x > 0 && gameData.scroll_y > 0) {
         scrollX = static_cast<float>(gameData.scroll_x - RENDER_WIDTH/2);
-        if (scrollX < 0)
+        scrollY = static_cast<float>(gameData.scroll_y - RENDER_HEIGHT/2);
+        if (x_loop == OOB::CLAMP && scrollX < 0)
             scrollX = 0;
         if (!gameData.level_chunks.empty()) {
-            if (scrollX >= gameData.level_chunks[0].size() * Chunk::WIDTH - RENDER_WIDTH)
+            if (x_loop == OOB::CLAMP && scrollX >= gameData.level_chunks[0].size() * Chunk::WIDTH - RENDER_WIDTH)
                 scrollX = gameData.level_chunks[0].size() * Chunk::WIDTH - RENDER_WIDTH;
 
-            if (gameData.level_chunks.size() * 128 <= RENDER_HEIGHT) {
+
+            if (gameData.level_chunks.size() * Chunk::WIDTH <= RENDER_HEIGHT) {
                 scrollY = 0;
-            } else {
+            }
+            else if (CLAMP_Y && scrollY < 0) {
+                scrollY = 0;
+            }
+            else if (CLAMP_Y && scrollY >= gameData.level_chunks.size() * Chunk::WIDTH - RENDER_HEIGHT)
+                scrollY = gameData.level_chunks.size() * Chunk::WIDTH - RENDER_HEIGHT;
+            else {
                 scrollY = static_cast<float>(gameData.scroll_y - RENDER_HEIGHT/2);
             }
         } else {

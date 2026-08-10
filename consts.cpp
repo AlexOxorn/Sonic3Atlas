@@ -112,3 +112,6 @@ std::pair<int, int> OUTPUT_RESOLUTION;
 const char* FFMPEG_OUT = nullptr;
 const char* FFMPEG_CODEC = "h264_nvenc";
 bool dynamicResolution = false;
+
+OOB x_loop = OOB::CLAMP;
+OOB y_loop = OOB::CLAMP;

@@ -215,6 +215,17 @@ extern FILE* inputStream;
 extern RenderingData gameData;
 extern std::string frameError;
 
+enum class OOB {
+    CLAMP,
+    LOOP,
+    NONE,
+};
+
+extern OOB x_loop;
+extern OOB y_loop;
+
+#define CLAMP_Y (y_loop == OOB::CLAMP && gameData.screen_min_y >= 0)
+
 #define PRESENTATION_MODE ( RENDER_WIDTH > WINDOW_WIDTH ? SDL_LOGICAL_PRESENTATION_OVERSCAN : SDL_LOGICAL_PRESENTATION_DISABLED )
 
 #endif //SONIC3ATLUS_CONSTS_H
