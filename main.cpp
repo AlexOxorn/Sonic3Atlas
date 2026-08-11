@@ -659,6 +659,7 @@ const std::unordered_map<std::string, std::pair<int, int>> ResolutionNames {
     {"HD", R_HD},
     {"2K", R_2K},
     {"4K", R_4K},
+    {"8K", R_8K},
     {"max", {-1, -1}},
 };
 
@@ -1115,7 +1116,7 @@ static bool render_master_texture() {
     SDL_FRect full_dst = full_src;
 
     if (WINDOW_WIDTH < RENDER_WIDTH) {
-        SDL_RenderTexture(renderer, make_transparent_mask, &full_src, &dst);
+        SDL_RenderTexture(renderer, make_transparent_mask, &full_src, &full_dst);
     }
     SDL_SetRenderTarget(renderer, nullptr);
 
@@ -1127,24 +1128,40 @@ static bool render_master_texture() {
 
     if (WINDOW_WIDTH < RENDER_WIDTH) {
         full_dst.x += 1;
+        full_dst.y += 1;
         SDL_SetTextureBlendMode(fullscreen_texture, mixTwoHalfBlend);
         SDL_RenderTexture(renderer, fullscreen_texture, &full_src, &full_dst);
     }
 
-    SDL_FRect screenDim = {
-        .x = static_cast<float>(gameData.screen_position_A.first - scrollX),
-        .y = static_cast<float>(gameData.screen_position_A.second - scrollY),
-        .w = static_cast<float>(GENESIS_RESOLUTION.first),
-        .h = static_cast<float>(GENESIS_RESOLUTION.second)
-    };
-    SDL_SetRenderDrawColor(renderer, 255, 0, 0, SDL_ALPHA_OPAQUE);
-    SDL_RenderRect(renderer, &screenDim);
-    screenDim.x -= 1;
-    screenDim.y -= 1;
-    screenDim.w += 2;
-    screenDim.h += 2;
-    SDL_RenderRect(renderer, &screenDim);
+    int lowLoop = 0;
+    int highLoop = 1;
 
+    if (gameData.screen_min_y < 0) {
+        while (gameData.screen_position_A.second - scrollY + lowLoop * gameData.vertical_loop + GENESIS_RESOLUTION.second > 0)
+            lowLoop--;
+
+        while (gameData.screen_position_A.second - scrollY + highLoop * gameData.vertical_loop < RENDER_HEIGHT)
+            highLoop++;
+    }
+
+    for (int loopOff = lowLoop; loopOff < highLoop; loopOff++) {
+        SDL_FRect screenDim = {
+            .x = static_cast<float>(gameData.screen_position_A.first - scrollX),
+            .y = static_cast<float>(gameData.screen_position_A.second - scrollY + loopOff * gameData.vertical_loop),
+            .w = static_cast<float>(GENESIS_RESOLUTION.first),
+            .h = static_cast<float>(GENESIS_RESOLUTION.second)
+        };
+
+        const int RectWidth = 2 * RENDER_WIDTH/WINDOW_WIDTH;
+        SDL_SetRenderDrawColor(renderer, 255, 0, 0, SDL_ALPHA_OPAQUE);
+        for (int i = 0; i < RectWidth; ++i) {
+            SDL_RenderRect(renderer, &screenDim);
+            screenDim.x -= 1;
+            screenDim.y -= 1;
+            screenDim.w += 2;
+            screenDim.h += 2;
+        }
+    }
 
     return true;
 }
@@ -1242,7 +1259,7 @@ extern "C" SDL_AppResult SDL_AppIterate(void *appstate) {
                 scrollX = gameData.level_chunks[0].size() * Chunk::WIDTH - RENDER_WIDTH;
 
 
-            if (gameData.level_chunks.size() * Chunk::WIDTH <= RENDER_HEIGHT) {
+            if (dynamicResolution && gameData.level_chunks.size() * Chunk::WIDTH <= RENDER_HEIGHT) {
                 scrollY = 0;
             }
             else if (CLAMP_Y && scrollY < 0) {

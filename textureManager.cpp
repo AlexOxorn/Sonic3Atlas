@@ -253,8 +253,8 @@ bool initDestTextures() {
     fullscreen_texture = SDL_CreateTexture(renderer,
         SDL_PIXELFORMAT_RGBA32,
         SDL_TEXTUREACCESS_TARGET,
-        SCREEN_TEXTURE_WIDTH,
-        SCREEN_TEXTURE_HEIGHT
+        RENDER_WIDTH,
+        RENDER_HEIGHT
         );
     if (!fullscreen_texture) {
         SDL_Log("Couldn't create fullscreen_texture texture: %s", SDL_GetError());
