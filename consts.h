@@ -106,6 +106,7 @@ constexpr inline u8 HIDDEN_PALACE_ZONE = 0x16;
 constexpr inline u8 FINAL_BOSS_ZONE = 0x17;
 
 constexpr inline u8 AIZ_FLYING_BOMB_SHIP = 0x2;
+constexpr inline u8 HCZ_WALL_EVENT = 0x1;
 
 #define LEVEL_ACT(LVL, ACT) (\
     (LVL == LAVA_REEF_ZONE && ACT == 3) ? (HIDDEN_PALACE_ZONE << 8) : \

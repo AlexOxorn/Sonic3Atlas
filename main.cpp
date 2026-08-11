@@ -79,6 +79,12 @@ Reads 256 bytes, broken up into
 2 bytes in the format 0000'BBB0 GGG0'RRR0
 
 ---------------------
+BGCOLOUR
+---------------------
+A single byte representing the index into CRAM
+to be used as the background color
+
+---------------------
 TILE_TST
 ---------------------
 Reads 64KB as in the entirety of VRAM
@@ -289,7 +295,7 @@ Those 8 bytes are broken into
 - XPosition: 2 bytes (signed BE)
 
 ---------------------
-EVENTDAT
+EVENTDAT (Deprecated)
 ---------------------
 1 byte for the Current Zone
 1 byte for the Current Act
@@ -298,6 +304,20 @@ EVENTDAT
 2 bytes (LE) for the current foreground event
 
 2 bytes (LE) for a generic background event variable
+6 * 2 bytes (LE) for 6 different generic foreground event variables
+2 bytes (LE) special variable used during LBZ Death Egg Event
+
+
+---------------------
+EVNTDAT2
+---------------------
+1 byte for the Current Zone
+1 byte for the Current Act
+
+2 bytes (LE) for the current background event
+2 bytes (LE) for the current foreground event
+
+9 * 2 bytes (LE) for 9 different generic background event variables
 6 * 2 bytes (LE) for 6 different generic foreground event variables
 2 bytes (LE) special variable used during LBZ Death Egg Event
 
@@ -345,6 +365,10 @@ static s32 getNextFrame(FILE* fd) {
         else if (strncmp(msg, "COLORTST", 8) == 0) {
             gameData.palette = Palette::fromSocket(fd);
             gameData.water_palette = Palette::fromSocket(fd);
+            flags |= COLOR_UPDATED;
+        }
+        else if (strncmp(msg, "BGCOLOUR", 8) == 0) {
+            recvStrict(fd, &gameData.backgroundColor, 1);
             flags |= COLOR_UPDATED;
         }
         else if (strncmp(msg, "TILE_TST", 8) == 0) {
@@ -471,7 +495,15 @@ static s32 getNextFrame(FILE* fd) {
             recvStrict(fd, &gameData.currentZoneAct, 2);
             recvStrict(fd, &gameData.bgEvent, 2);
             recvStrict(fd, &gameData.fgEvent, 2);
-            recvStrict(fd, &gameData.bgEventVar, 2);
+            recvStrict(fd, gameData.bgEventVars.data(), 2);
+            recvStrict(fd, gameData.fgEventVars.begin(), 2 * 6);
+            recvStrict(fd, &gameData.lbzDeathEggEvent, 2);
+        }
+        else if (strncmp(msg, "EVNTDAT2", 8) == 0) {
+            recvStrict(fd, &gameData.currentZoneAct, 2);
+            recvStrict(fd, &gameData.bgEvent, 2);
+            recvStrict(fd, &gameData.fgEvent, 2);
+            recvStrict(fd, gameData.bgEventVars.data(), 2 * 9);
             recvStrict(fd, gameData.fgEventVars.begin(), 2 * 6);
             recvStrict(fd, &gameData.lbzDeathEggEvent, 2);
         }

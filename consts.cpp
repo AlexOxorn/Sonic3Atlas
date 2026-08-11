@@ -72,11 +72,11 @@ const std::string_view renderToggleNames[]  = {
 };
 
 u32 renderFlags  = 0
-    // RENDER_BACKGROUND_LOW
+    | RENDER_BACKGROUND_LOW
     | RENDER_FOREGROUND_LOW
     | RENDER_SPRITE_LOW
     | RENDER_RINGS
-    // | RENDER_BACKGROUND_HIGH
+    | RENDER_BACKGROUND_HIGH
     | RENDER_FOREGROUND_HIGH
     | RENDER_SPRITE_HIGH;
 

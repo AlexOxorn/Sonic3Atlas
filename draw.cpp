@@ -11,7 +11,7 @@
 #include "consts.h"
 #include <SDL3/SDL.h>
 
-static constexpr bool drawchunkBorder = false;
+static constexpr bool drawChunkBorder = false;
 
 struct FramePosition {
     int x_pos;
@@ -332,7 +332,18 @@ bool drawRings() {
     return true;
 }
 
-static bool drawPlane(const std::vector<std::vector<u8>>& chunks, const int chunkXOffset = 0, const int chunkYOffset = 0) {
+static bool drawPlane2(
+    const std::vector<std::vector<u8>>& chunks,
+    const float xOffset,
+    const float yOffset,
+    const int leftmostChunk,
+    const int topmostChunk,
+    const int rightmostChunk,
+    const int bottommostChunk,
+    const float water_line_coord
+    )
+{
+
     SDL_FRect src{
         .x = 0,
         .y = 0,
@@ -345,14 +356,6 @@ static bool drawPlane(const std::vector<std::vector<u8>>& chunks, const int chun
         .w = Chunk::WIDTH,
         .h = Chunk::WIDTH
     };
-
-    const int leftmostChunk = static_cast<int>(scrollX / Chunk::WIDTH);
-    const int topmostChunk = static_cast<int>(scrollY / Chunk::WIDTH);
-    const int rightmostChunk = std::ceil((scrollX + RENDER_WIDTH)/Chunk::WIDTH);
-    const int bottommostChunk = std::ceil((scrollY + RENDER_HEIGHT)/Chunk::WIDTH);
-
-    const auto water_line_coord = static_cast<float>(gameData.water_line - (topmostChunk*Chunk::WIDTH));
-
     auto getChunkIndex = [&chunks](int rowIndex, int columnIndex) -> int {
         if (gameData.screen_min_y < 0) {
             while (rowIndex < 0)
@@ -368,8 +371,8 @@ static bool drawPlane(const std::vector<std::vector<u8>>& chunks, const int chun
     };
 
     for (int rowIndex_base = topmostChunk; rowIndex_base <= bottommostChunk; rowIndex_base++) {
-        const int rowIndex = rowIndex_base + chunkYOffset;
-        dest.y = static_cast<float>((rowIndex_base - topmostChunk) * Chunk::WIDTH);
+        const int rowIndex = rowIndex_base;
+        dest.y = static_cast<float>((rowIndex_base - topmostChunk) * Chunk::WIDTH) + yOffset;
 
         const bool land = dest.y < water_line_coord || !gameData.has_water;
         const bool water = dest.y + dest.h >= water_line_coord && gameData.has_water;
@@ -377,11 +380,11 @@ static bool drawPlane(const std::vector<std::vector<u8>>& chunks, const int chun
         if (water && land) {
             dest.h = water_line_coord - dest.y;
             for (int columnIndex_base = leftmostChunk; columnIndex_base <= rightmostChunk; columnIndex_base++) {
-                const int columnIndex = columnIndex_base + chunkXOffset;
+                const int columnIndex = columnIndex_base;
                 const int chunkIndex = getChunkIndex(rowIndex, columnIndex);
                 if (chunkIndex < 0)
                     continue;
-                dest.x = static_cast<float>((columnIndex - leftmostChunk) * Chunk::WIDTH);
+                dest.x = static_cast<float>((columnIndex - leftmostChunk) * Chunk::WIDTH) + xOffset;
 
                 src.x = static_cast<float>(chunkIndex%8 * Chunk::WIDTH * 2);
                 src.y = static_cast<float>(chunkIndex/8 * Chunk::WIDTH);
@@ -393,11 +396,11 @@ static bool drawPlane(const std::vector<std::vector<u8>>& chunks, const int chun
             dest.h = (dest.y + Chunk::WIDTH - water_line_coord);
             dest.y = water_line_coord;
             for (int columnIndex_base = leftmostChunk; columnIndex_base <= rightmostChunk; columnIndex_base++) {
-                const int columnIndex = columnIndex_base + chunkXOffset;
+                const int columnIndex = columnIndex_base;
                 const int chunkIndex = getChunkIndex(rowIndex, columnIndex);
                 if (chunkIndex < 0)
                     continue;
-                dest.x = static_cast<float>((columnIndex_base - leftmostChunk) * Chunk::WIDTH);
+                dest.x = static_cast<float>((columnIndex_base - leftmostChunk) * Chunk::WIDTH) + xOffset;
 
                 src.x = static_cast<float>(chunkIndex%8 * Chunk::WIDTH * 2 + Chunk::WIDTH);
                 src.y = static_cast<float>(chunkIndex/8 * Chunk::WIDTH + (Chunk::WIDTH - dest.h));
@@ -407,16 +410,16 @@ static bool drawPlane(const std::vector<std::vector<u8>>& chunks, const int chun
                 SDL_RenderTexture(renderer, translucency_mask_texture, &src, &dest);
             }
             dest.h = Chunk::WIDTH;
-            dest.y = 0;
+            dest.y =  + yOffset;
             src.h = Chunk::WIDTH;
         }
         else if (land) {
             for (int columnIndex_base = leftmostChunk; columnIndex_base <= rightmostChunk; columnIndex_base++) {
-                const int columnIndex = columnIndex_base + chunkXOffset;
+                const int columnIndex = columnIndex_base;
                 const int chunkIndex = getChunkIndex(rowIndex, columnIndex);
                 if (chunkIndex < 0)
                     continue;
-                dest.x = static_cast<float>((columnIndex_base - leftmostChunk) * Chunk::WIDTH);
+                dest.x = static_cast<float>((columnIndex_base - leftmostChunk) * Chunk::WIDTH) + xOffset;
 
                 src.x = static_cast<float>(chunkIndex%8 * Chunk::WIDTH * 2);
                 src.y = static_cast<float>(chunkIndex/8 * Chunk::WIDTH);
@@ -427,14 +430,14 @@ static bool drawPlane(const std::vector<std::vector<u8>>& chunks, const int chun
         }
         else if (water) {
             for (int columnIndex_base = leftmostChunk; columnIndex_base <= rightmostChunk; columnIndex_base++) {
-                const int columnIndex = columnIndex_base + chunkXOffset;
+                const int columnIndex = columnIndex_base;
                 int chunkIndex;
                 try {
                     chunkIndex = chunks.at(rowIndex).at(columnIndex);
                 } catch (const std::out_of_range& e) {
                     continue;;
                 }
-                dest.x = static_cast<float>((columnIndex_base - leftmostChunk) * Chunk::WIDTH);
+                dest.x = static_cast<float>((columnIndex_base - leftmostChunk) * Chunk::WIDTH) + xOffset;
 
                 src.x = static_cast<float>(chunkIndex%8 * Chunk::WIDTH * 2+ Chunk::WIDTH);
                 src.y = static_cast<float>(chunkIndex/8 * Chunk::WIDTH);
@@ -442,12 +445,16 @@ static bool drawPlane(const std::vector<std::vector<u8>>& chunks, const int chun
                 SDL_RenderTexture(renderer, chunks_texture, &src, &dest);
                 SDL_RenderTexture(renderer, translucency_mask_texture, &src, &dest);
             }
+        } else {
+            fprintf(stderr, "Error, neither water nor land\n");
+            fprintf(stderr, "Above: dest.y           < water_line_coord === %f < %f\n", dest.y, water_line_coord);
+            fprintf(stderr, "Under: dest.y + dest.h >= water_line_coord === %f < %f\n", dest.y + dest.h, water_line_coord);
         }
 
 
     }
 
-    if constexpr (drawchunkBorder) {
+    if constexpr (drawChunkBorder) {
         SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
         for (int i = 1; i < RENDER_WIDTH/Chunk::WIDTH; i++) {
             SDL_RenderLine(renderer, i * Chunk::WIDTH, 0, i * Chunk::WIDTH, RENDER_HEIGHT);
@@ -491,38 +498,34 @@ static bool drawPlane(const std::vector<std::vector<u8>>& chunks, const int chun
     return true;
 }
 
+static bool drawPlane(const std::vector<std::vector<u8>>& chunks, const float xOffset = 0, const float yOffset = 0) {
+
+    const int leftmostChunk = static_cast<int>(scrollX / Chunk::WIDTH);
+    const int topmostChunk = static_cast<int>(scrollY / Chunk::WIDTH);
+    const int rightmostChunk = std::ceil((scrollX + RENDER_WIDTH)/Chunk::WIDTH);
+    const int bottommostChunk = std::ceil((scrollY + RENDER_HEIGHT)/Chunk::WIDTH);
+    const auto water_line_coord = static_cast<float>(gameData.water_line - (topmostChunk*Chunk::WIDTH));
+    return drawPlane2(chunks, xOffset, yOffset, leftmostChunk, topmostChunk, rightmostChunk, bottommostChunk, water_line_coord);
+}
+
 
 static bool drawToBackgroundDefault(const bool prio) {
-    if ((renderFlags & (prio ? RENDER_BACKGROUND_HIGH : RENDER_BACKGROUND_LOW)) == 0)
-        return true;
+    const int offsetX = gameData.screen_position_A.first - gameData.screen_position_B.first;
+    const int offsetY = gameData.screen_position_A.second - gameData.screen_position_B.second;
+    const int leftmostChunk = static_cast<int>(scrollX / Chunk::WIDTH);
+    const int topmostChunk = static_cast<int>(scrollY / Chunk::WIDTH);
+    const auto water_line_coord = static_cast<float>(gameData.water_line - (topmostChunk*Chunk::WIDTH));
+    auto res = drawPlane2(
+        gameData.background_chunks,
+        offsetX - leftmostChunk * Chunk::WIDTH,
+        offsetY - topmostChunk * Chunk::WIDTH,
+        0,
+        0,
+        gameData.background_chunks.empty() ? 0 : gameData.background_chunks[0].size(),
+        gameData.background_chunks.size(),
+        water_line_coord);
 
-    SDL_Texture*& level_texture = level_textures[LEVEL_BG | (prio ? LEVEL_HIGH : 0)];
-
-    const auto palette = prio ? high_prio_palette : low_prio_palette;
-    SDL_SetTexturePalette(chunks_texture, palette);
-    if (!SDL_SetRenderTarget(renderer, level_texture)) {
-        SDL_Log("Couldn't set render target texture: %s", SDL_GetError());
-        return false;
-    }
-
-    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
-    SDL_RenderClear(renderer);
-
-
-
-    auto [BGScrollX, BGScrollY] = gameData.screen_position_B;
-    auto [FGScrollX, FGScrollY] = gameData.screen_position_A;
-
-    const int FG_leftmostChunk = FGScrollX / Chunk::WIDTH;
-    const int BG_leftmostChunk = BGScrollX / Chunk::WIDTH;
-    const int FG_topmostChunk = FGScrollY / Chunk::WIDTH;
-    const int BG_topmostChunk = BGScrollY / Chunk::WIDTH;
-
-    const int fgBgChunkXOffset = (BG_leftmostChunk - FG_leftmostChunk);
-    const int fgBgChunkYOffset = (BG_topmostChunk - FG_topmostChunk);
-
-
-    return drawPlane(gameData.background_chunks, fgBgChunkXOffset, fgBgChunkYOffset);
+    return res;
 }
 
 
@@ -531,7 +534,7 @@ static bool drawToLevelDefault(const bool prio) {
     return res;
 }
 
-namespace AIZ_SHIP {
+namespace AIZ2_SHIP {
     static constexpr s32 propellerMapAddr = 0x23C182;
     static constexpr s32 SHIP_CHUNK_X = 123;
     static constexpr s32 SHIP_CHUNK_Y = 19;
@@ -599,11 +602,37 @@ namespace AIZ_SHIP {
     }
 }
 
+namespace HCZ2_WALL {
+    constexpr int WALL_CHUNK_START_X = 4;
+    constexpr int WALL_CHUNK_START_Y = 2;
+    constexpr int WALL_CHUNK_END_X = 8;
+    constexpr int WALL_CHUNK_END_Y = 6;
+
+    static bool drawWall() {
+        const int offsetX = gameData.screen_position_A.first - gameData.screen_position_B.first;
+        const int offsetY = gameData.screen_position_A.second - gameData.screen_position_B.second;
+        const int leftmostChunk = static_cast<int>(scrollX / Chunk::WIDTH);
+        const int topmostChunk = static_cast<int>(scrollY / Chunk::WIDTH);
+        const auto water_line_coord = static_cast<float>(gameData.water_line - (topmostChunk*Chunk::WIDTH));
+        auto res = drawPlane2(
+            gameData.background_chunks,
+            offsetX + (4 - leftmostChunk) * Chunk::WIDTH,
+            offsetY + (2 - topmostChunk) * Chunk::WIDTH,
+            WALL_CHUNK_START_X,
+            WALL_CHUNK_START_Y,
+            WALL_CHUNK_END_X,
+            WALL_CHUNK_END_Y,
+            water_line_coord);
+
+        return res;
+    }
+}
+
 static bool drawSelect(bool prio) {
     switch (gameData.getCurrentActFGEvent()) {
         case LEVEL_ACT_EVENT(ANGLE_ISLAND_ZONE, 2, AIZ_FLYING_BOMB_SHIP): {
             const bool x = drawToLevelDefault(prio);
-            const bool y = prio ? AIZ_SHIP::drawShip() : true;
+            const bool y = prio ? AIZ2_SHIP::drawShip() : true;
             return x && y;
         }
         case LEVEL_ACT_EVENT(HYDRO_CITY_ZONE, 1, 0): {
@@ -615,6 +644,36 @@ static bool drawSelect(bool prio) {
         }
         default: {
             return drawToLevelDefault(prio);
+        }
+    }
+
+}
+
+static bool drawSelectBG(const bool prio) {
+    switch (gameData.getCurrentActBGEvent()) {
+        case LEVEL_ACT_EVENT(HYDRO_CITY_ZONE, 2, HCZ_WALL_EVENT): {
+            return prio ? HCZ2_WALL::drawWall() : true;
+        }
+        case LEVEL_ACT_EVENT(MARBLE_GARDEN_ZONE, 2, 1): {
+            // ------------------------------------------------------------
+            // For Sonic
+            // If between $800 and $900 Y and > $34C0 X, use second BG move
+            // If bgEventVar0 is no longer 8, delete collapse manager
+            // ------------------------------------------------------------
+
+            // ------------------------------------------------------------
+            // For Knuckles
+            // If between $80 and $180 Y and > $3800 X, use first BG move
+            // If bgEventVar0 is no longer 4, delete collapse manager
+            // ------------------------------------------------------------
+
+            if (gameData.bgEventVars[0] == 4 || gameData.bgEventVars[0] == 8) {
+                return drawToBackgroundDefault(prio);
+            }
+            return true;
+        }
+        default: {
+            return true;
         }
     }
 
@@ -645,9 +704,25 @@ bool drawToLevel(const bool prio) {
 }
 
 bool drawToBackground(const bool prio) {
-    switch (gameData.getCurrentActBGEvent()) {
-        default: {
-            return true;
-        }
+    if ((renderFlags & (prio ? RENDER_BACKGROUND_HIGH : RENDER_BACKGROUND_LOW)) == 0)
+        return true;
+
+    // CREATE TEXTURE IF FIRST
+    SDL_Texture*& level_texture = level_textures[LEVEL_HIGH * prio + LEVEL_BG];
+
+    // SET PALETTE AND SET AS RENDER TARGET
+    const auto palette = prio ? high_prio_palette : low_prio_palette;
+    SDL_SetTexturePalette(chunks_texture, palette);
+    if (!SDL_SetRenderTarget(renderer, level_texture)) {
+        SDL_Log("Couldn't set render target texture: %s", SDL_GetError());
+        return false;
     }
+
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0); // Transparent black
+    SDL_RenderClear(renderer);
+
+    bool ret = drawSelectBG(prio);
+
+    SDL_SetRenderTarget(renderer, nullptr);
+    return ret;
 }

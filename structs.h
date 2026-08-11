@@ -971,8 +971,8 @@ struct RenderingData {
     TileSet tileset;
     BlockMap blocks;
     ChunkMap chunks;
-    std::pair<int, int> screen_position_A;
-    std::pair<int, int> screen_position_B;
+    std::pair<s16, s16> screen_position_A;
+    std::pair<s16, s16> screen_position_B;
 
     std::vector<std::vector<u8>> level_chunks;
     std::vector<std::vector<u8>> background_chunks;
@@ -983,6 +983,7 @@ struct RenderingData {
 
     RingData ring_data;
     bool has_water;
+    u8 backgroundColor;
     s16 vertical_loop;
     s16 screen_min_x;
     s16 screen_min_y;
@@ -1022,7 +1023,7 @@ struct RenderingData {
     u16 currentZoneAct;
     u16 bgEvent;
     u16 fgEvent;
-    u16 bgEventVar;
+    std::array<u16, 9> bgEventVars;
     std::array<u16, 6> fgEventVars;
     u16 lbzDeathEggEvent;
     u16 gamePaused;

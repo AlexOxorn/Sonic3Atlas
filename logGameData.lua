@@ -61,6 +61,7 @@ VDP_mock = {
     VtoV = false,
     DMA = false,
     CARE = false,
+    BACKGROUND_COLOR = 0
 
     AUTO_INC = 2
 }
@@ -121,6 +122,10 @@ event.on_bus_write (function (addr, val, flags)
     -- Auto Inc Register
     if (val >= 0x8F00 and val < 0x9000) then
         VDP_mock.AUTO_INC = val & (0xFF)
+    end
+
+    if (val >= 0x8700 and val < 0x8800) then
+        BACKGROUND_COLOR = val & 0xFF
     end
 
     -- CD0 = 1
@@ -358,6 +363,9 @@ function Connection:send_palette_ram()
     self.client:send('COLORTST')
     self.client:send(color_data)
     self.client:send(water_data)
+
+    self.client:send('BGCOLOUR')
+    self.client:send(int_to_bytes(VDP_mock.BACKGROUND_COLOR, 1))
 end
 
 function Connection:send_full_vram()
@@ -635,11 +643,13 @@ function Connection:send_loop_data()
 end
 
 function Connection:send_events_data()
-    self.client:send('EVENTDAT')
+    self.client:send('EVNTDAT2')
     self.client:send(int_to_bytes(memory.read_u16_be(Current_zone_and_act, "68K RAM"), 2))
     self.client:send(int_to_bytes(memory.read_u16_be(BG_EVENT, "68K RAM"), 2))
     self.client:send(int_to_bytes(memory.read_u16_be(FG_EVENT, "68K RAM"), 2))
-    self.client:send(int_to_bytes(memory.read_u16_be(BG_EVENT_VAR, "68K RAM"), 2))
+    for i=0, 8 do
+        self.client:send(int_to_bytes(memory.read_u16_be(BG_EVENT_VAR + i * 2, "68K RAM"), 2))
+    end
     for i=1, #FG_EVENT_VARS do
         self.client:send(int_to_bytes(memory.read_u16_be(FG_EVENT_VARS[i], "68K RAM"), 2))
     end
