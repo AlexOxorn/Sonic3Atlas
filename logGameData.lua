@@ -61,7 +61,7 @@ VDP_mock = {
     VtoV = false,
     DMA = false,
     CARE = false,
-    BACKGROUND_COLOR = 0
+    BACKGROUND_COLOR = 0,
 
     AUTO_INC = 2
 }
@@ -373,6 +373,8 @@ function Connection:send_full_vram()
     self.client:send('TILE_TST')
     print(string.format("Sending: %d tiles", #str_data))
     self.client:send(str_data)
+    self.vram_updates = {}
+    VRAM_ADDR_CHANGED = {}
 end
 
 function Connection:DMAQueueAddCallback()
@@ -675,10 +677,12 @@ function Connection:send_vram()
     timeFunction(false, 'send_ring_status', function() connection:send_ring_status() end)
 	previousGameMode = currentGameMode
 	currentGameMode = memory.read_u8(GAME_MODE, "68K RAM")
-    if (previousGameMode & 0x80) ~= 0 and (currentGameMode & 0x80) == 0 then
+    if ((currentGameMode & 0x80) ~= 0) or ((previousGameMode & 0x80) ~= 0) then
         timeFunction(false, 'send_full_vram', function() connection:send_full_vram() end)
     elseif (currentGameMode & 0x80) == 0 then
         timeFunction(false, 'vram_updates', function() connection:send_vram_updates() end)
+    else
+        print(string.format('What?? %2x %2x', currentGameMode, previousGameMode))
     end
     --timeFunction(false, 'tileset', function() connection:send_tileset() end)
     timeFunction(false, 'send_screen_position', function() connection:send_screen_position() end)
@@ -696,7 +700,7 @@ function Connection:send_vram()
 end
 
 
-connection = Connection:new(true, "03-Draft.bin")
+connection = Connection:new(true, "04-Draft.bin")
 
 FRAME_LOOP = 0
 render_sprite = false

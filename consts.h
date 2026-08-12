@@ -107,16 +107,19 @@ constexpr inline u8 FINAL_BOSS_ZONE = 0x17;
 
 constexpr inline u8 AIZ_FLYING_BOMB_SHIP = 0x2;
 constexpr inline u8 HCZ_WALL_EVENT = 0x1;
+constexpr inline u8 CNZ1_PRE_BOSS_EVENT = 0x1;
+constexpr inline u8 CNZ1_BOSS_EVENT = 0x2;
+constexpr inline u8 CNZ1_POST_BOSS_EVENT = 0x3;
 
 #define LEVEL_ACT(LVL, ACT) (\
-    (LVL == LAVA_REEF_ZONE && ACT == 3) ? (HIDDEN_PALACE_ZONE << 8) : \
-    (LVL == HIDDEN_PALACE_ZONE && ACT <= 1) ? ((HIDDEN_PALACE_ZONE << 8) + 1) : \
-    (LVL == DEATH_EGG_ZONE && ACT == 3) ? (FINAL_BOSS_ZONE << 8) : \
-    ((LVL << 8) + (ACT - 1))\
+    ((LVL) == LAVA_REEF_ZONE && (ACT) == 3) ? (HIDDEN_PALACE_ZONE << 8) : \
+    ((LVL) == HIDDEN_PALACE_ZONE && (ACT) <= 1) ? ((HIDDEN_PALACE_ZONE << 8) + 1) : \
+    ((LVL) == DEATH_EGG_ZONE && (ACT) == 3) ? (FINAL_BOSS_ZONE << 8) : \
+    (((LVL) << 8) + ((ACT) - 1))\
    )
 
 #define LEVEL_ACT_EVENT(LVL, ACT, EVENT) (\
-    (LEVEL_ACT(LVL, ACT) << 16) + EVENT\
+    (LEVEL_ACT(LVL, ACT) << 16) + (EVENT)\
 )
 
 constexpr inline auto LEVEL_HIGH = 0b10;

@@ -628,6 +628,37 @@ namespace HCZ2_WALL {
     }
 }
 
+namespace CNZ1_BOSS {
+    template<bool loop>
+    static bool drawBossBackground(const bool prio) {
+        int offsetX = gameData.screen_position_A.first - gameData.screen_position_B.first;
+        int offsetY = gameData.screen_position_A.second - gameData.screen_position_B.second;
+        const int leftmostChunk = static_cast<int>(scrollX / Chunk::WIDTH);
+        const int topmostChunk = static_cast<int>(scrollY / Chunk::WIDTH);
+        const auto water_line_coord = static_cast<float>(gameData.water_line - (topmostChunk*Chunk::WIDTH));
+
+        if constexpr (loop) {
+            while (offsetY < 0)
+                offsetY += 2 * Chunk::WIDTH;
+            while (offsetY >= 2* Chunk::WIDTH)
+                offsetY -= 2 * Chunk::WIDTH;
+        }
+
+        auto res = drawPlane2(
+            gameData.background_chunks,
+            offsetX - leftmostChunk * Chunk::WIDTH,
+            offsetY - topmostChunk * Chunk::WIDTH,
+            0,
+            0,
+            gameData.background_chunks.empty() ? 0 : gameData.background_chunks[0].size(),
+            gameData.background_chunks.size(),
+            water_line_coord);
+
+        return res;
+    }
+
+}
+
 static bool drawSelect(bool prio) {
     switch (gameData.getCurrentActFGEvent()) {
         case LEVEL_ACT_EVENT(ANGLE_ISLAND_ZONE, 2, AIZ_FLYING_BOMB_SHIP): {
@@ -672,6 +703,16 @@ static bool drawSelectBG(const bool prio) {
             }
             return true;
         }
+        case LEVEL_ACT_EVENT(CARNIVAL_NIGHT_ZONE, 1, CNZ1_PRE_BOSS_EVENT):
+        case LEVEL_ACT_EVENT(CARNIVAL_NIGHT_ZONE, 1, CNZ1_POST_BOSS_EVENT):
+        case LEVEL_ACT_EVENT(CARNIVAL_NIGHT_ZONE, 1, CNZ1_POST_BOSS_EVENT+1):
+        {
+            return CNZ1_BOSS::drawBossBackground<false>(prio);
+        }
+        case LEVEL_ACT_EVENT(CARNIVAL_NIGHT_ZONE, 1, CNZ1_BOSS_EVENT): {
+            return CNZ1_BOSS::drawBossBackground<true>(prio);
+        }
+
         default: {
             return true;
         }

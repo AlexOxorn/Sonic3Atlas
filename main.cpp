@@ -79,7 +79,7 @@ Reads 256 bytes, broken up into
 2 bytes in the format 0000'BBB0 GGG0'RRR0
 
 ---------------------
-BGCOLOUR
+BGCOLOUR (Unused)
 ---------------------
 A single byte representing the index into CRAM
 to be used as the background color
@@ -602,6 +602,7 @@ Options:
         HD = 1920x1080
         2K = 2560x1440
         4K = 3840x2160
+        gen = 320x224
         max = Dynamically adjust resolution to a 16:9 aspect ratio such that the
               entire vertical span of the current level fits exactly
 
@@ -610,6 +611,7 @@ Options:
         HD = 1920x1080
         2K = 2560x1440
         4K = 3840x2160
+        gen = 320x224
 
     --res resolution_name (default=2K)
         Set the both the internal and output resolution
@@ -660,6 +662,7 @@ const std::unordered_map<std::string, std::pair<int, int>> ResolutionNames {
     {"2K", R_2K},
     {"4K", R_4K},
     {"8K", R_8K},
+    {"gen", GENESIS_RESOLUTION},
     {"max", {-1, -1}},
 };
 
