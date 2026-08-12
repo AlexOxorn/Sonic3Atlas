@@ -544,10 +544,12 @@ static bool init_renderer() {
     SDL_SetRenderLogicalPresentation(renderer, RENDER_WIDTH, RENDER_HEIGHT, PRESENTATION_MODE);
 
     //Enable VSync
-    if( !SDL_SetRenderVSync( renderer, SDL_RENDERER_VSYNC_ADAPTIVE ) )
-    {
-        SDL_Log( "Could not enable VSync! SDL error: %s\n", SDL_GetError() );
-        return false;
+    if (!FFMPEG_OUT) {
+        if( !SDL_SetRenderVSync( renderer, SDL_RENDERER_VSYNC_ADAPTIVE ) )
+        {
+            SDL_Log( "Could not enable VSync! SDL error: %s\n", SDL_GetError() );
+            return false;
+        }
     }
 
     transparency_mask_palette = SDL_CreatePalette(2);
@@ -687,7 +689,10 @@ static void set_file(const char* fileName) {
 }
 
 static void set_ffmpeg(const char* fileName) {
-    FFMPEG_OUT = fileName;
+    if (fileName)
+        FFMPEG_OUT = std::format("../output/{}", fileName);
+    else
+        FFMPEG_OUT = std::nullopt;
 }
 
 static void set_codec(const char* codecName) {
@@ -813,13 +818,17 @@ extern "C" SDL_AppResult SDL_AppInit(void ** /*appstate*/, int  /*argc*/, char *
             "-r 60 "
             "-i - "
             "-c:v {} "
-            "-b:v 80M "
+            // "-crf 15 "
+            // "-b:v 40M "
+            // "-minrate 20M "
+            // "-maxrate 60M "
+            "-cq 6 "
             "-pix_fmt yuv420p "
             "{}",
             FFMPEG_WIDTH,
             FFMPEG_HEIGHT,
             FFMPEG_CODEC,
-            FFMPEG_OUT);
+            *FFMPEG_OUT);
         ffmpegProcess = popen(ffmpegCmd.c_str(), "w");
         if (!ffmpegProcess) {
             fprintf(stderr, "Couldn't Open POPEN: %d\n", errno);

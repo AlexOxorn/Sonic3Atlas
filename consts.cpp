@@ -109,7 +109,7 @@ std::string frameError;
 
 std::pair<int, int> INTERNAL_RESOLUTION  = {16, 9};
 std::pair<int, int> OUTPUT_RESOLUTION;
-const char* FFMPEG_OUT = nullptr;
+std::optional<std::string> FFMPEG_OUT = std::nullopt;
 const char* FFMPEG_CODEC = "h264_nvenc";
 bool dynamicResolution = false;
 

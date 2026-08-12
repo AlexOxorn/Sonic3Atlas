@@ -40,7 +40,7 @@ constexpr inline std::pair GENESIS_RESOLUTION(320, 224);
 extern bool dynamicResolution;
 extern std::pair<int, int> INTERNAL_RESOLUTION;
 extern std::pair<int, int> OUTPUT_RESOLUTION;
-extern const char* FFMPEG_OUT;
+extern std::optional<std::string> FFMPEG_OUT;
 extern const char* FFMPEG_CODEC;
 
 #define WINDOW_WIDTH OUTPUT_RESOLUTION.first
@@ -230,6 +230,6 @@ extern OOB y_loop;
 
 #define CLAMP_Y (y_loop == OOB::CLAMP && gameData.screen_min_y >= 0)
 
-#define PRESENTATION_MODE ( RENDER_WIDTH > WINDOW_WIDTH ? SDL_LOGICAL_PRESENTATION_OVERSCAN : SDL_LOGICAL_PRESENTATION_DISABLED )
+#define PRESENTATION_MODE ( RENDER_WIDTH > WINDOW_WIDTH ? SDL_LOGICAL_PRESENTATION_OVERSCAN : SDL_LOGICAL_PRESENTATION_LETTERBOX )
 
 #endif //SONIC3ATLUS_CONSTS_H

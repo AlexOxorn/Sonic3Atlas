@@ -984,7 +984,7 @@ struct RenderingData {
     RingData ring_data;
     bool has_water;
     u8 backgroundColor;
-    s16 vertical_loop;
+    u16 vertical_loop;
     s16 screen_min_x;
     s16 screen_min_y;
     s16 screen_max_x;
