@@ -1,7 +1,7 @@
 require("socket.socket")
 
-PLANE_A_X = 0xEE78
-PLANE_A_Y = 0xEE7C
+PLANE_A_X = 0xEE80
+PLANE_A_Y = 0xEE84
 PLANE_B_X = 0xEE8C
 PLANE_B_Y = 0xEE90
 
@@ -695,12 +695,13 @@ function Connection:send_vram()
     end
     timeFunction(false, 'sonic_position', function() connection:sonic_position() end)
     timeFunction(false, 'send_events_data', function() connection:send_events_data() end)
-    timeFunction(false, 'send_lag_count', function() connection:send_lag_count() end)
+    self.client:send('GAMEMODE')
+    self.client:send(int_to_bytes(currentGameMode, 1))
     connection:wait_for_response()
 end
 
 
-connection = Connection:new(true, "04-Draft.bin")
+connection = Connection:new(true, "TAS.bin")
 
 FRAME_LOOP = 0
 render_sprite = false
@@ -729,10 +730,10 @@ local c3 = event.on_bus_exec(function (addr, val, flags)
 end, DMA_QUEUE_ADD_EXEC_ADDR)
 
 while true do
-    timeFunction(false, 'Total Frame', function() emu.frameadvance() end)
-    for i=1, FRAME_LOOP do
-        emu.frameadvance()
-    end
+    timeFunction(false, 'Total Frame', function()
+        emu.frameadvance();
+        connection.client:send('V_BLANK_');
+    end)
     render_sprite = true
 end
 

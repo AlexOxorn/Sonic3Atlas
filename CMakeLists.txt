@@ -12,6 +12,14 @@ add_executable(Sonic3Atlus main.cpp
 target_link_libraries(Sonic3Atlus PRIVATE SDL3::SDL3)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    # Add compiler flag
+    target_compile_options(Sonic3Atlus PRIVATE -stdlib=libc++)
+
+    # Add linker flag
+    target_link_options(Sonic3Atlus PRIVATE -stdlib=libc++)
+endif()
+
 #target_compile_options(Sonic3Atlus PRIVATE -fsanitize=address -fno-omit-frame-pointer -g)
 #target_link_options(Sonic3Atlus PRIVATE -fsanitize=address)
 

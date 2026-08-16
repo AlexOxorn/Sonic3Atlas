@@ -8,4 +8,11 @@ bool drawToLevel(bool prio);
 bool drawToBackground(bool prio);
 bool drawSprites(bool prio);
 bool drawRings();
+bool drawHudText();
+
+namespace DEBUG {
+    extern bool chunkInfo;
+    extern bool swapFGBG;
+    extern bool forceFG;
+}
 #endif // DRAW_H

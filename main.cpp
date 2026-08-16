@@ -353,6 +353,8 @@ static s32 getNextFrame(FILE* fd) {
     char dump[128];
     size_t count;
     s32 flags = 0;
+    gameData.lagFrames = 0;
+    gameData.frameCount = 0;
     while ((count = recvStrict(fd, msg, 8)) > 0) {
         // printf("msg: %8s\n", msg);
         if (strncmp(msg, "SCRN_POS", 8) == 0) {
@@ -512,18 +514,27 @@ static s32 getNextFrame(FILE* fd) {
             // flags |= GAME_PAUSED * static_cast<bool>(gameData.gamePaused);
         }
         else if (strncmp(msg, "DONE____", 8) == 0) {
-            if (!gameData.gamePaused && !gameData.level_chunks.empty()) {
+            if (!gameData.gamePaused /*&& !gameData.level_chunks.empty()*/) {
                 return flags;
             }
         }
         else if (strncmp(msg, "LAGFRAME", 8) == 0) {
             // return flags | LAG_FRAME;
+            gameData.lagFrames += 1;
+        }
+        else if (strncmp(msg, "V_BLANK_", 8) == 0) {
+            // return flags | LAG_FRAME;
+            gameData.frameCount += 1;
+        }
+        else if (strncmp(msg, "GAMEMODE", 8) == 0) {
+            u8 gameMode = 0;
+            recvStrict(fd, &gameMode, 1);
         }
         else if (strncmp(msg, "LAGCOUNT", 8) == 0) {
             recvStrict(fd, &gameData.lagFrames, 2);
         }
         else {
-            fprintf(stderr, "Unexpected msg '%8s'", msg);
+            fprintf(stderr, "Unexpected msg '%8s'\n", msg);
             return (-1);
         }
     }
@@ -695,6 +706,14 @@ static void set_ffmpeg(const char* fileName) {
         FFMPEG_OUT = std::nullopt;
 }
 
+
+static void set_ffmpeg_audio(const char* fileName) {
+    if (fileName)
+        FFMPEG_AUDIO = std::format("../output/{}", fileName);
+    else
+        FFMPEG_AUDIO = std::nullopt;
+}
+
 static void set_codec(const char* codecName) {
     FFMPEG_CODEC = codecName;
 }
@@ -750,6 +769,7 @@ static void set_yoob(const char* resolutionName) {
 static std::unordered_map<std::string_view, const char*> arguments = {
     {"--file", "0"},
     {"--ffmpeg", nullptr},
+    {"--ff_audio", nullptr},
     {"--codec", "h264_nvenc"},
     {"--in_res", "2K"},
     {"--out_res", "2K"},
@@ -761,6 +781,7 @@ static std::unordered_map<std::string_view, const char*> arguments = {
 static std::unordered_map<std::string_view, void(*)(const char*)> arguments_setters = {
     {"--file", set_file},
     {"--ffmpeg", set_ffmpeg},
+    {"--ff_audio", set_ffmpeg_audio},
     {"--codec", set_codec},
     {"--in_res", set_internal_resolution},
     {"--out_res", set_output_resolution},
@@ -810,26 +831,34 @@ extern "C" SDL_AppResult SDL_AppInit(void ** /*appstate*/, int  /*argc*/, char *
 
 
     if (FFMPEG_OUT) {
-        const auto ffmpegCmd = std::format(
+        std::string base = std::format(
             "ffmpeg -y "
+            // "-thread_queue_size 512 "
+
             "-f rawvideo "
             "-pix_fmt rgba "
             "-s {}x{} "
-            "-r 60 "
-            "-i - "
+            "-r 59.92 "
+            "-i - ",
+            FFMPEG_WIDTH,
+            FFMPEG_HEIGHT);
+
+        auto make_audio_input = [](std::string audio_in) { return std::format("-i {} ", audio_in); };
+        const auto ff_audio_in = FFMPEG_AUDIO.transform(make_audio_input);
+
+        const std::string output_args = std::format(
             "-c:v {} "
-            // "-crf 15 "
-            // "-b:v 40M "
-            // "-minrate 20M "
-            // "-maxrate 60M "
             "-cq 6 "
             "-pix_fmt yuv420p "
             "{}",
-            FFMPEG_WIDTH,
-            FFMPEG_HEIGHT,
             FFMPEG_CODEC,
             *FFMPEG_OUT);
-        ffmpegProcess = popen(ffmpegCmd.c_str(), "w");
+
+
+        base += ff_audio_in.value_or("");
+        base += output_args;
+
+        ffmpegProcess = popen(base.c_str(), "w");
         if (!ffmpegProcess) {
             fprintf(stderr, "Couldn't Open POPEN: %d\n", errno);
             return SDL_APP_FAILURE;
@@ -862,7 +891,8 @@ extern "C" SDL_AppResult SDL_AppInit(void ** /*appstate*/, int  /*argc*/, char *
 }
 
 
-#define RENDER_TOGGLE_EVENT(x) if (event->key.key == SDLK_##x) { renderFlags ^= (1 << (x-1)); renderToggleTimers[x-1] = 3.0f; }
+#define RENDER_TOGGLE_EVENT(x) case SDLK_##x: { renderFlags ^= (1 << (x-1)); renderToggleTimers[x-1] = 3.0f; break; }
+#define DEBUG_SWITCH(x, name) case SDLK_##x: { DEBUG::name = !DEBUG::name; break; }
 
 extern "C" SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event)
 {
@@ -870,77 +900,60 @@ extern "C" SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event)
         return SDL_APP_SUCCESS;
     }
     if (event->type == SDL_EVENT_KEY_DOWN) {
-        if (event->key.key == SDLK_ESCAPE) {
-            return SDL_APP_SUCCESS;
+        if ((event->key.mod & SDL_KMOD_CTRL) == 0) {
+            if (event->key.key == SDLK_ESCAPE) { return SDL_APP_SUCCESS; }
+            if (FFMPEG_OUT) { return SDL_APP_CONTINUE; }
+            switch (event->key.key) {
+                case SDLK_DOWN: { scrollY += 32.0f; redrawLevel = true; break; }
+                case SDLK_UP: { scrollY -= 32.0f; redrawLevel = true; break; }
+                case SDLK_RIGHT: { scrollX += 32.0f; redrawLevel = true; break; }
+                case SDLK_LEFT: { scrollX -= 32.0f; redrawLevel = true; break; }
+                case SDLK_KP_PLUS: { scale *= 2.0f; break; }
+                case SDLK_KP_MINUS: { scale /= 2.0f; break; }
+                case SDLK_P: { speed += 1.0f; SpeedChangeMsgTimer = 3.0f; break; }
+                case SDLK_O: { speed -= 1.0f; SpeedChangeMsgTimer = 3.0f; break; }
+                case SDLK_I: { speed = 0.0f; SpeedChangeMsgTimer = 3.0f; break; }
+                case SDLK_SPACE: { update_data(); pauseData = true; break; }
+                case SDLK_PAUSE: { pauseData = !pauseData; break; }
+                case SDLK_M: {
+                    fileIndex += 1;
+                    fileIndex %= static_cast<int>(binFiles.size());
+                    operFile(fileIndex);
+                    gameData = RenderingData{};
+                    FileChangeMsgTimer = 3.0f;
+                    break;
+                }
+                case SDLK_N: {
+                    fileIndex -= 1;
+                    fileIndex = fileIndex < 0 ? fileIndex + static_cast<int>(binFiles.size()) : fileIndex;
+                    operFile(fileIndex);
+                    gameData = RenderingData{};
+                    FileChangeMsgTimer = 3.0f;
+                    break;
+                }
+                case SDLK_Z: { skipToNextLevel = true; break; }
+                RENDER_TOGGLE_EVENT(1);
+                RENDER_TOGGLE_EVENT(2);
+                RENDER_TOGGLE_EVENT(3);
+                RENDER_TOGGLE_EVENT(4);
+                RENDER_TOGGLE_EVENT(5);
+                RENDER_TOGGLE_EVENT(6);
+                RENDER_TOGGLE_EVENT(7);
+                default:
+                    fprintf(stderr, "Unknown Key %x %x: %c\n", event->key.mod, event->key.key, static_cast<char>(event->key.key));
+            }
         }
-        if (FFMPEG_OUT) {
-            return SDL_APP_CONTINUE;
+
+        if (event->key.mod & SDL_KMOD_CTRL) {
+            switch (event->key.key) {
+                DEBUG_SWITCH(Q, chunkInfo)
+                DEBUG_SWITCH(W, swapFGBG)
+                DEBUG_SWITCH(E, forceFG)
+                default:;
+            }
         }
-        if (event->key.key == SDLK_DOWN) {
-            scrollY += 32.0f;
-            redrawLevel = true;
-        }
-        if (event->key.key == SDLK_UP) {
-            scrollY -= 32.0f;
-            redrawLevel = true;
-        }
-        if (event->key.key == SDLK_RIGHT) {
-            scrollX += 32.0f;
-            redrawLevel = true;
-        }
-        if (event->key.key == SDLK_LEFT) {
-            scrollX -= 32.0f;
-            redrawLevel = true;
-        }
-        if (event->key.key == SDLK_KP_PLUS) {
-            scale *= 2.0f;
-        }
-        if (event->key.key == SDLK_KP_MINUS) {
-            scale /= 2.0f;
-        }
-        if (event->key.key == SDLK_P) {
-            speed += 1.0f;
-            SpeedChangeMsgTimer = 3.0f;
-        }
-        if (event->key.key == SDLK_O) {
-            speed -= 1.0f;
-            SpeedChangeMsgTimer = 3.0f;
-        }
-        if (event->key.key == SDLK_I) {
-            speed = 0.0f;
-            SpeedChangeMsgTimer = 3.0f;
-        }
-        if (event->key.key == SDLK_SPACE) {
-            update_data();
-            pauseData = true;
-        }
-        if (event->key.key == SDLK_PAUSE) {
-            pauseData = !pauseData;
-        }
-        if (event->key.key == SDLK_M) {
-            fileIndex += 1;
-            fileIndex %= static_cast<int>(binFiles.size());
-            operFile(fileIndex);
-            gameData = RenderingData{};
-            FileChangeMsgTimer = 3.0f;
-        }
-        if (event->key.key == SDLK_N) {
-            fileIndex -= 1;
-            fileIndex = fileIndex < 0 ? fileIndex + static_cast<int>(binFiles.size()) : fileIndex;
-            operFile(fileIndex);
-            gameData = RenderingData{};
-            FileChangeMsgTimer = 3.0f;
-        }
-        RENDER_TOGGLE_EVENT(1);
-        RENDER_TOGGLE_EVENT(2);
-        RENDER_TOGGLE_EVENT(3);
-        RENDER_TOGGLE_EVENT(4);
-        RENDER_TOGGLE_EVENT(5);
-        RENDER_TOGGLE_EVENT(6);
-        RENDER_TOGGLE_EVENT(7);
-        if (event->key.key == SDLK_Z) {
-            skipToNextLevel = true;
-        }
+
+
     }
     return SDL_APP_CONTINUE;
 }
@@ -1061,6 +1074,9 @@ static bool redrawAll() {
     if (!drawToBackground(true)) {
         return false;
     };
+    if (!drawHudText()) {
+        return false;
+    }
     if (!drawSprites(false)) {
         return false;
     };
@@ -1099,9 +1115,9 @@ static bool render_master_texture() {
 
     SDL_SetRenderTarget(renderer, fullscreen_texture);
 
-    SDL_SetRenderDrawColor(renderer, 32, 0, 32, SDL_ALPHA_OPAQUE);
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, SDL_ALPHA_OPAQUE);
     SDL_RenderClear(renderer);
-    SDL_SetRenderDrawColor(renderer, 0, 0, 64, 128);
+    SDL_SetRenderDrawColor(renderer, 0, 0, 128, 128);
     const SDL_FRect water_area{
         .x = 0,
         .y = (gameData.water_line - scrollY),
@@ -1155,6 +1171,9 @@ static bool render_master_texture() {
         while (gameData.screen_position_A.second - scrollY + highLoop * gameData.vertical_loop < RENDER_HEIGHT)
             highLoop++;
     }
+    int RectWidth = 2 * RENDER_WIDTH/WINDOW_WIDTH;
+    if (RENDER_HEIGHT > 1440)
+        RectWidth *= 2;
 
     for (int loopOff = lowLoop; loopOff < highLoop; loopOff++) {
         SDL_FRect screenDim = {
@@ -1164,7 +1183,6 @@ static bool render_master_texture() {
             .h = static_cast<float>(GENESIS_RESOLUTION.second)
         };
 
-        const int RectWidth = 2 * RENDER_WIDTH/WINDOW_WIDTH;
         SDL_SetRenderDrawColor(renderer, 255, 0, 0, SDL_ALPHA_OPAQUE);
         for (int i = 0; i < RectWidth; ++i) {
             SDL_RenderRect(renderer, &screenDim);
@@ -1174,6 +1192,54 @@ static bool render_master_texture() {
             screenDim.h += 2;
         }
     }
+
+    auto leftBoundary = std::max(0.0f, gameData.screen_min_x - scrollX);
+    auto rightBoundary = std::min(static_cast<float>(RENDER_WIDTH), gameData.screen_max_x - scrollX + GENESIS_RESOLUTION.first);
+    auto topBoundary = gameData.screen_min_y < 0 ? 0 : std::max(0.0f, gameData.screen_min_y - scrollY);
+    auto bottomBoundary = gameData.screen_min_y < 0 ? RENDER_HEIGHT : std::min(static_cast<float>(RENDER_HEIGHT), gameData.screen_max_y - scrollY + GENESIS_RESOLUTION.second);
+
+    SDL_FRect boundary = {
+        .x = leftBoundary,
+        .y = topBoundary,
+        .w = rightBoundary - leftBoundary,
+        .h = bottomBoundary - topBoundary
+    };
+
+    SDL_SetRenderDrawColor(renderer, 255, 255, 0, 127);
+
+    for (int i = 0; i < RectWidth; ++i) {
+        SDL_RenderRect(renderer, &boundary);
+        boundary.x -= 1;
+        boundary.y -= 1;
+        boundary.w += 2;
+        boundary.h += 2;
+    }
+
+    SDL_FRect debug_src = {
+        .x = 0,
+        .y = 0,
+        .w = static_cast<float>(pixelsPerRow),
+        .h = static_cast<float>(SpriteMappingEntry::WIDTH*5)
+    };
+    SDL_FRect debug_dist = {
+        .x = 0,
+        .y = 0,
+        .w = static_cast<float>(pixelsPerRow)*2,
+        .h = static_cast<float>(SpriteMappingEntry::WIDTH*5)*2
+    };
+    SDL_FRect hud_src = {
+        .x = 0,
+        .y = 0,
+        .w = WIDESCREEN_GEN.first,
+        .h = WIDESCREEN_GEN.second
+    };
+
+    SDL_SetTexturePalette(mappings_texture, full_palette);
+    // SDL_RenderTexture(renderer, mappings_texture, &debug_src, &debug_dist);
+    if (!SDL_RenderTexture(renderer, hud_texture, nullptr, nullptr)) {
+        SDL_Log("Couldn't render hud onto screen: %s", SDL_GetError());
+        return false;
+    };
 
     return true;
 }
@@ -1235,22 +1301,55 @@ static bool renderMessages(float delta_time) {
     return true;
 }
 
-static SDL_Surface* previousFrame = nullptr;
+static void transpose_flattened(const u32 *src, u32 *dest, int rows, int cols) {
+    for (int r = 0; r < rows; r++) {
+        for (int c = 0; c < cols; c++) {
+            const int src_idx = r * cols + c;
+            const int dest_idx = c * rows + r;
+            dest[dest_idx] = src[src_idx];
+        }
+    }
+}
 
-/* This function runs once per frame, and is the heart of the program. */
+
+static SDL_Surface* previousFrame = nullptr;
+static u32* previousBuffer = nullptr;
+
+static void writeToFFMPEG() {
+    if (previousFrame == nullptr) {
+        for (int i = 0; i < FFMPEG_BYTES_PER_FRAME; i++) {
+            fputc(0, ffmpegProcess);
+        }
+    } else {
+        const auto  pixels = static_cast<char*> (previousFrame->pixels);
+        for (int y = 0; y < FFMPEG_HEIGHT; y++) {
+            fwrite(pixels + y * previousFrame->pitch, 1, previousFrame->pitch, ffmpegProcess);
+            for (int z = 0; z < (FFMPEG_WIDTH*sizeof(u32) - previousFrame->pitch); z++) {
+                fputc(0, ffmpegProcess);
+            }
+        }
+    }
+}
+
+static bool reachedFinalBoss = false;
+
 extern "C" SDL_AppResult SDL_AppIterate(void *appstate) {
+    if (previousBuffer == nullptr)
+        previousBuffer = static_cast<u32*>(calloc(FFMPEG_BYTES_PER_FRAME/sizeof(u32), sizeof(u32)));
+
     const u64 current_ticks = SDL_GetTicks();
     // Delta time in seconds
     delta_time = static_cast<float>(current_ticks - last_ticks) / 1000.0f;
     last_ticks = current_ticks;
     // printf("DT: %f\n", 1/delta_time);
 
+
+
     bool success = true;
     if (!pauseData) {
         const auto res = update_data();
         if (res == UPDATE_LAG_FRAME) {
-            fprintf(stderr, "LAG FRAME\n");
-            // return SDL_APP_CONTINUE;
+            // fprintf(stderr, "LAG FRAME\n");
         }
         if (res == UPDATE_FAILURE) {
             fprintf(stderr, "Update Failure\n");
@@ -1259,6 +1358,14 @@ extern "C" SDL_AppResult SDL_AppIterate(void *appstate) {
         if (FFMPEG_OUT && (res == UPDATE_EOF)) {
             return SDL_APP_SUCCESS;
         }
+    }
+
+    if (gameData.currentZoneAct == 0x1700) {
+        reachedFinalBoss = true;
+    }
+    if (reachedFinalBoss && gameData.currentZoneAct != 0x1700) {
+        printf("Credits \"level\" %04x\n", gameData.currentZoneAct);
+        return SDL_APP_SUCCESS;
     }
 
     if (gameData.scroll_x > 0 && gameData.scroll_y > 0) {
@@ -1297,15 +1404,13 @@ extern "C" SDL_AppResult SDL_AppIterate(void *appstate) {
     const float seconds = static_cast<float>(ticks)/1000;
 
     if (FFMPEG_OUT) {
-        if (previousFrame) {
-            if (gameData.lagFrames && gameData.level_chunks.size() > 0) {
-                printf("\nLAG x %d\n", gameData.lagFrames);
-            }
-            for (int i = 0; i < gameData.lagFrames; ++i) {
-                fwrite(previousFrame->pixels, 1, FFMPEG_BYTES_PER_FRAME, ffmpegProcess);
-            }
+        // if (gameData.lagFrames) printf("LagFrameCount: %d\n", gameData.lagFrames);
+        if (gameData.lagFrames != gameData.frameCount-1) {
+            // printf("Weird Lag/Frame count Lag: %d, Frames, %d\n", gameData.lagFrames, gameData.frameCount);
         }
-
+        for (int i = 0; i < gameData.frameCount; ++i) {
+            writeToFFMPEG();
+        }
     }
 
     if (!redrawAll()) {
@@ -1325,7 +1430,6 @@ extern "C" SDL_AppResult SDL_AppIterate(void *appstate) {
         if (previousFrame)
             SDL_DestroySurface(previousFrame);
         previousFrame = SDL_RenderReadPixels(renderer, nullptr);
-        fwrite(previousFrame->pixels, 1, FFMPEG_BYTES_PER_FRAME, ffmpegProcess);
     }
 
     SDL_RenderPresent(renderer);

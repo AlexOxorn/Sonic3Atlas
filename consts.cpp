@@ -6,6 +6,7 @@
 
 SDL_Palette* low_prio_palette = nullptr;
 SDL_Palette* high_prio_palette = nullptr;
+SDL_Palette* full_palette = nullptr;
 SDL_Palette* transparency_mask_palette = nullptr;
 SDL_Palette* high_priority_mask_palette = nullptr;
 SDL_Palette* low_priority_mask_palette = nullptr;
@@ -23,6 +24,7 @@ SDL_Texture* translucency_mask_texture = nullptr;
 SDL_GPUDevice* device = nullptr;
 SDL_Texture* make_transparent_mask = nullptr;
 SDL_Texture* fullscreen_texture = nullptr;
+SDL_Texture* hud_texture = nullptr;
 
 SDL_Window    *window             = nullptr;
 SDL_Renderer  *renderer           = nullptr;
@@ -110,8 +112,18 @@ std::string frameError;
 std::pair<int, int> INTERNAL_RESOLUTION  = {16, 9};
 std::pair<int, int> OUTPUT_RESOLUTION;
 std::optional<std::string> FFMPEG_OUT = std::nullopt;
+std::optional<std::string> FFMPEG_AUDIO = std::nullopt;
 const char* FFMPEG_CODEC = "h264_nvenc";
 bool dynamicResolution = false;
 
 OOB x_loop = OOB::CLAMP;
 OOB y_loop = OOB::CLAMP;
+
+const std::array<SpriteMappingFrame, 6> hud_mappings = {
+    SpriteMappingFrame::fromBytes(f1),
+    SpriteMappingFrame::fromBytes(f2),
+    SpriteMappingFrame::fromBytes(f3),
+    SpriteMappingFrame::fromBytes(f4),
+    SpriteMappingFrame::fromBytes(f5),
+    SpriteMappingFrame::fromBytes(f6),
+};

@@ -154,6 +154,7 @@ void cleanupDestTextures() {
     SDL_DestroyTexture(sprite_texture_high);
     SDL_DestroyTexture(sprite_texture_low);
     SDL_DestroyTexture(sprite_tmp_texture);
+    SDL_DestroyTexture(hud_texture);
 }
 
 void cleanupSrcTextures() {
@@ -262,6 +263,22 @@ bool initDestTextures() {
     }
     SDL_SetTextureScaleMode(fullscreen_texture, SDL_SCALEMODE_LINEAR);
 
+
+    hud_texture = SDL_CreateTexture(renderer,
+    SDL_PIXELFORMAT_RGBA32,
+    SDL_TEXTUREACCESS_TARGET,
+    WIDESCREEN_GEN.first,
+    WIDESCREEN_GEN.second
+    );
+
+    if (!hud_texture) {
+        SDL_Log("Couldn't create hud_texture texture: %s", SDL_GetError());
+        return false;
+    }
+    SDL_SetTextureScaleMode(hud_texture, SDL_SCALEMODE_PIXELART);
+    SDL_SetTextureBlendMode(hud_texture, SDL_BLENDMODE_BLEND);
+
+
     return true;
 
 }
@@ -334,6 +351,13 @@ bool updatePalette() {
             return false;
         }
     }
+    if (full_palette == nullptr) {
+        full_palette = SDL_CreatePalette(1 << (sizeof(indexedColor) * 8));
+        if (!full_palette) {
+            SDL_Log("Couldn't create palette: %s", SDL_GetError());
+            return false;
+        }
+    }
 
     std::array<SDL_Color, PALETTE_SIZE*PALETTE_COUNT*2> low{};
     std::array<SDL_Color, PALETTE_SIZE*PALETTE_COUNT*2> high{};
@@ -389,6 +413,15 @@ bool updatePalette() {
         return false;
     };
 
+    if (!SDL_SetPaletteColors(full_palette, low.data(), 0, PALETTE_SIZE * PALETTE_COUNT)) {
+        SDL_Log("Couldn't set palette full palette low: %s", SDL_GetError());
+        return false;
+    }
+
+    if (!SDL_SetPaletteColors(full_palette, low.data(), 0x80, PALETTE_SIZE * PALETTE_COUNT)) {
+        SDL_Log("Couldn't set palette full palette high: %s", SDL_GetError());
+        return false;
+    }
 
     if constexpr (sizeof(indexedColor) > 1) {
         if (!SDL_SetPaletteColors(low_prio_palette, lowTransparent.data(), 0x100, PALETTE_SIZE * PALETTE_COUNT * 2)) {
@@ -507,6 +540,13 @@ bool updateMappings() {
         }
         for (auto& childEntry : s.children | stdv::transform(&SpriteMappingFrame::entries) | stdv::join) {
             static_cast<void>(childEntry.getBytes(s.object.art_tile, gameData.tileset));
+        }
+    }
+    for (const auto& [size, entries] : hud_mappings) {
+        for (auto& entry : entries) {
+            static_cast<void>(entry.getBytes(
+                HUD_ART_TILE_TMP,
+                gameData.tileset));
         }
     }
 

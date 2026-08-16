@@ -6,12 +6,20 @@
 
 #include <cmath>
 #include <format>
+#include <ostream>
+#include <numeric>
 
 #include "structs.h"
 #include "consts.h"
 #include <SDL3/SDL.h>
 
-static constexpr bool drawChunkBorder = false;
+namespace DEBUG {
+    bool chunkInfo = false;
+    bool swapFGBG = false;
+    bool forceFG = false;
+    static u32 previousBGEvent = 0;
+    static std::array<u16, 9> previousBGVars;
+}
 
 struct FramePosition {
     int x_pos;
@@ -19,6 +27,12 @@ struct FramePosition {
     SDL_FlipMode flip;
 };
 
+struct MaskPosition {
+    float y_start;
+    float y_end;
+};
+
+using SpriteFrameData = std::variant<FramePosition, MaskPosition, std::monostate>;
 
 static void renderEntry(int index, SDL_FRect src, SDL_FRect dst) {
     dst.x += static_cast<float>(SPRITE_WIDTH * (index % SPRITE_PER_TMP_TEXTURE_ROW));
@@ -27,20 +41,33 @@ static void renderEntry(int index, SDL_FRect src, SDL_FRect dst) {
 }
 
 static bool drawFrame(
-    int index,
+    const int index,
     const SpriteMappingFrame& frame,
     const BatCell art_tile,
     const int x_pos,
     const int y_pos,
     const int relativeWaterLine,
     const SDL_FlipMode flip,
-    std::vector<FramePosition>& positions
+    std::vector<SpriteFrameData>& positions,
+    bool prio
     )
 {
     auto [size, entries] = frame;
 
+    float y_min = std::numeric_limits<float>::infinity();
+    float y_max = -std::numeric_limits<float>::infinity();
+    bool mask_obj = false;
+
     for (auto& entry : entries | stdv::reverse) {
         const s64 mapID = SpriteMappingEntry::mappingIDs[entry.withBase(art_tile)];
+
+        // Sprite Masking
+        if (entry.withBase(art_tile).art_tile.vram_index == 0x7C0) {
+            mask_obj = true;
+            y_min = std::min(static_cast<float>(entry.y_pos+128), y_min);
+            y_max = std::max(static_cast<float>(entry.y_pos+128 + (entry.dim.height+1) * Tile::WIDTH), y_max);
+            continue;
+        }
 
         SDL_FRect src{
             .x = static_cast<float>(2 * (mapID % MAPPING_ENTRY_PER_ROW * SpriteMappingEntry::WIDTH)),
@@ -112,7 +139,14 @@ static bool drawFrame(
 
     }
 
-    positions.emplace_back(x_pos, y_pos, flip);
+    if (mask_obj) {
+        // if (art_tile.priority != prio)
+        //     positions.emplace_back(std::monostate{});
+        // else
+        positions.emplace_back(MaskPosition(y_pos+y_min, y_pos+y_max));
+    } else {
+        positions.emplace_back(FramePosition(x_pos, y_pos, flip));
+    }
     return true;
 }
 
@@ -151,7 +185,7 @@ bool drawSprites(const bool prio) {
 
     const auto water_line_coord = (gameData.water_line - (topmostChunk*Chunk::WIDTH));
 
-    std::vector<FramePosition> positions;
+    std::vector<SpriteFrameData> positions;
 
     if (!SDL_SetRenderTarget(renderer, sprite_tmp_texture)) {
         SDL_Log("Couldn't set render target texture: %s", SDL_GetError());
@@ -163,7 +197,7 @@ bool drawSprites(const bool prio) {
 
     int index = 0;
 
-    for (const auto& [object, frame, children] : gameData.sprites | stdv::reverse) {
+    for (auto& [object, frame, children] : gameData.sprites | stdv::reverse) {
         auto [x_pos, y_pos] = getTruePos(
             object.x_pos, object.y_pos, object.render_flags.use_level_coordinates);
 
@@ -183,14 +217,14 @@ bool drawSprites(const bool prio) {
         }
 
         if (!object.render_flags.compound_sprite || object.mapping_frame != 0 ) {
-            drawFrame(index++, frame, object.art_tile, x_pos, y_pos, water_line_coord - y_pos, flip, positions);
+            drawFrame(index++, frame, object.art_tile, x_pos, y_pos, water_line_coord - y_pos, flip, positions, prio);
         }
 
         for (const auto& [childFrame, childData] :
             stdv::zip(children, object.children))
         {
             auto [sub_x_pos, sub_y_pos] = getTruePos(childData.x_pos, childData.y_pos, object.render_flags.use_level_coordinates);
-            drawFrame(index++, childFrame, object.art_tile, sub_x_pos, sub_y_pos, water_line_coord - sub_y_pos, flip, positions);
+            drawFrame(index++, childFrame, object.art_tile, sub_x_pos, sub_y_pos, water_line_coord - sub_y_pos, flip, positions, prio);
         }
     }
 
@@ -211,29 +245,47 @@ bool drawSprites(const bool prio) {
     SDL_RenderClear(renderer);
 
     for (int i = 0; i < index; ++i) {
-        auto [x, base_y, flip] = positions[i];
-        for (const int loopOff : loopOffsets) {
-            const int y = base_y + loopOff * gameData.vertical_loop;;
-            if (y + 256 < 0)
-                continue;
-            if (y > RENDER_HEIGHT)
-                continue;
+        auto data = positions[i];
+        if (std::holds_alternative<FramePosition>(data)) {
+            auto [x, base_y, flip] = std::get<FramePosition>(data);
+            for (const int loopOff : loopOffsets) {
+                const int y = base_y + loopOff * gameData.vertical_loop;;
+                if (y + 256 < 0)
+                    continue;
+                if (y > RENDER_HEIGHT)
+                    continue;
 
-            SDL_FRect src {
-                .x = static_cast<float>(SPRITE_WIDTH * (i%SPRITE_PER_TMP_TEXTURE_ROW)),
-                .y = static_cast<float>(SPRITE_WIDTH * (i/SPRITE_PER_TMP_TEXTURE_ROW)),
-                .w = SPRITE_WIDTH,
-                .h = SPRITE_WIDTH,
-            };
+                SDL_FRect src {
+                    .x = static_cast<float>(SPRITE_WIDTH * (i%SPRITE_PER_TMP_TEXTURE_ROW)),
+                    .y = static_cast<float>(SPRITE_WIDTH * (i/SPRITE_PER_TMP_TEXTURE_ROW)),
+                    .w = SPRITE_WIDTH,
+                    .h = SPRITE_WIDTH,
+                };
 
-            SDL_FRect dest {
-                .x = static_cast<float>(x),
-                .y = static_cast<float>(y),
-                .w = SPRITE_WIDTH,
-                .h = SPRITE_WIDTH,
-            };
+                SDL_FRect dest {
+                    .x = static_cast<float>(x),
+                    .y = static_cast<float>(y),
+                    .w = SPRITE_WIDTH,
+                    .h = SPRITE_WIDTH,
+                };
 
-            SDL_RenderTextureRotated(renderer, sprite_tmp_texture, &src, &dest, 0, nullptr, flip);
+                SDL_RenderTextureRotated(renderer, sprite_tmp_texture, &src, &dest, 0, nullptr, flip);
+            }
+        }
+        else if (std::holds_alternative<MaskPosition>(data))
+        {
+            auto [y_low, y_high] = std::get<MaskPosition>(data);
+            SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
+            for (const int loopOff : loopOffsets) {
+                const float y = y_low + loopOff * gameData.vertical_loop;
+                SDL_FRect dst {
+                    .x = 0.f,
+                    .y = y,
+                    .w = static_cast<float>(RENDER_WIDTH),
+                    .h = y_high - y_low
+                };
+                SDL_RenderFillRect(renderer, &dst);
+            }
         }
     }
 
@@ -454,7 +506,7 @@ static bool drawPlane2(
 
     }
 
-    if constexpr (drawChunkBorder) {
+    if (DEBUG::chunkInfo) {
         SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
         for (int i = 1; i < RENDER_WIDTH/Chunk::WIDTH; i++) {
             SDL_RenderLine(renderer, i * Chunk::WIDTH, 0, i * Chunk::WIDTH, RENDER_HEIGHT);
@@ -516,7 +568,7 @@ static bool drawToBackgroundDefault(const bool prio) {
     const int topmostChunk = static_cast<int>(scrollY / Chunk::WIDTH);
     const auto water_line_coord = static_cast<float>(gameData.water_line - (topmostChunk*Chunk::WIDTH));
     auto res = drawPlane2(
-        gameData.background_chunks,
+        DEBUG::swapFGBG ? gameData.level_chunks : gameData.background_chunks,
         offsetX - leftmostChunk * Chunk::WIDTH,
         offsetY - topmostChunk * Chunk::WIDTH,
         0,
@@ -528,9 +580,8 @@ static bool drawToBackgroundDefault(const bool prio) {
     return res;
 }
 
-
 static bool drawToLevelDefault(const bool prio) {
-    auto res = drawPlane(gameData.level_chunks);
+    auto res = drawPlane(DEBUG::swapFGBG ? gameData.background_chunks : gameData.level_chunks);
     return res;
 }
 
@@ -602,6 +653,25 @@ namespace AIZ2_SHIP {
     }
 }
 
+static bool drawBGSubset(int lowX, int lowY, int highX, int highY) {
+    const int offsetX = gameData.screen_position_A.first - gameData.screen_position_B.first;
+    const int offsetY = gameData.screen_position_A.second - gameData.screen_position_B.second;
+    const int leftmostChunk = static_cast<int>(scrollX / Chunk::WIDTH);
+    const int topmostChunk = static_cast<int>(scrollY / Chunk::WIDTH);
+    const auto water_line_coord = static_cast<float>(gameData.water_line - (topmostChunk*Chunk::WIDTH));
+    auto res = drawPlane2(
+        gameData.background_chunks,
+        offsetX + (lowX - leftmostChunk) * Chunk::WIDTH,
+        offsetY + (lowY - topmostChunk) * Chunk::WIDTH,
+        lowX,
+        lowY,
+        highX,
+        highY,
+        water_line_coord);
+
+    return res;
+}
+
 namespace HCZ2_WALL {
     constexpr int WALL_CHUNK_START_X = 4;
     constexpr int WALL_CHUNK_START_Y = 2;
@@ -609,22 +679,7 @@ namespace HCZ2_WALL {
     constexpr int WALL_CHUNK_END_Y = 6;
 
     static bool drawWall() {
-        const int offsetX = gameData.screen_position_A.first - gameData.screen_position_B.first;
-        const int offsetY = gameData.screen_position_A.second - gameData.screen_position_B.second;
-        const int leftmostChunk = static_cast<int>(scrollX / Chunk::WIDTH);
-        const int topmostChunk = static_cast<int>(scrollY / Chunk::WIDTH);
-        const auto water_line_coord = static_cast<float>(gameData.water_line - (topmostChunk*Chunk::WIDTH));
-        auto res = drawPlane2(
-            gameData.background_chunks,
-            offsetX + (4 - leftmostChunk) * Chunk::WIDTH,
-            offsetY + (2 - topmostChunk) * Chunk::WIDTH,
-            WALL_CHUNK_START_X,
-            WALL_CHUNK_START_Y,
-            WALL_CHUNK_END_X,
-            WALL_CHUNK_END_Y,
-            water_line_coord);
-
-        return res;
+        return drawBGSubset(WALL_CHUNK_START_X, WALL_CHUNK_START_Y, WALL_CHUNK_END_X, WALL_CHUNK_END_Y);
     }
 }
 
@@ -659,6 +714,80 @@ namespace CNZ1_BOSS {
 
 }
 
+namespace SOZ1_EV {
+    constexpr int PYRAMID_CHUNK_START_X = 11;
+    constexpr int PYRAMID_CHUNK_START_Y = 2;
+    constexpr int PYRAMID_CHUNK_END_X = 14;
+    constexpr int PYRAMID_CHUNK_END_Y = 6;
+    static bool drawPyramid() {
+        return drawBGSubset(PYRAMID_CHUNK_START_X, PYRAMID_CHUNK_START_Y, PYRAMID_CHUNK_END_X, PYRAMID_CHUNK_END_Y);
+    }
+}
+
+namespace SSZ1_EV {
+    static std::optional<s16> start_colapse = std::nullopt;
+
+    static bool drawSpiral(bool prio) {
+        constexpr int BG_CHUNK_START_X = 0;
+        constexpr int BG_CHUNK_START_Y = 0;
+        constexpr int BG_CHUNK_END_X = 55;
+        constexpr int BG_CHUNK_END_Y = 21;
+        auto pieces = gameData.sprites
+        | stdv::transform(&Sprite::object)
+        | stdv::filter([](const ObjectTableEntry& entry) { return entry.routine_address == 0x584DE || entry.routine_address == 0x58468; })
+        ;
+
+        auto top_piece = stdr::fold_left_first(pieces | stdv::transform(&ObjectTableEntry::y_pos), [](s16 l, s16 r) { return std::min(l, r); });
+
+        int res = drawBGSubset(BG_CHUNK_START_X, BG_CHUNK_START_Y, BG_CHUNK_END_X, BG_CHUNK_END_Y);
+
+        if (start_colapse || top_piece) {
+            short cutoff;
+            if (top_piece && start_colapse) {
+                cutoff = std::min(*top_piece, *start_colapse);
+            }
+            else {
+                cutoff = top_piece.value_or(*start_colapse);
+            }
+            auto bottom = gameData.screen_max_y + GENESIS_RESOLUTION.second;
+            auto old_start = start_colapse.value_or(*top_piece);
+
+            start_colapse = cutoff;
+            cutoff -= 8;
+            if (!top_piece || old_start < *top_piece) {
+                cutoff -= 8;
+            }
+
+            auto leftPiece = gameData.screen_min_x;
+            auto rightPiece = gameData.screen_max_x + GENESIS_RESOLUTION.first;
+
+
+            const int leftmostChunk = static_cast<int>(scrollX / Chunk::WIDTH);
+            const int topmostChunk = static_cast<int>(scrollY / Chunk::WIDTH);
+
+            constexpr int BlueSkyChunk = 2;
+            auto BlueSkyColorIndex = gameData.chunks.getBytes(BlueSkyChunk, gameData.blocks, gameData.tileset)[0][0];
+            auto BlueSky = gameData.palette.lines[(BlueSkyColorIndex & 0x30 )>> 4].colors[BlueSkyColorIndex & 0xF];
+
+
+            SDL_SetRenderDrawColor(renderer, BlueSky.red, BlueSky.green, BlueSky.blue, prio ? 0 : 255);
+
+            SDL_FRect dst {
+                .x = static_cast<float>(leftPiece - leftmostChunk * Chunk::WIDTH),
+                .y = static_cast<float>(cutoff - topmostChunk * Chunk::WIDTH),
+                .w = static_cast<float>(rightPiece - leftPiece),
+                .h = static_cast<float>((bottom - cutoff)),
+            };
+
+            // printf("dst: %.1f | %.1f | %.1f | %.1f\n", dst.x, dst.y, dst.w, dst.h);
+
+            SDL_RenderFillRect(renderer, &dst);
+        }
+
+        return res;
+    }
+}
+
 static bool drawSelect(bool prio) {
     switch (gameData.getCurrentActFGEvent()) {
         case LEVEL_ACT_EVENT(ANGLE_ISLAND_ZONE, 2, AIZ_FLYING_BOMB_SHIP): {
@@ -681,20 +810,26 @@ static bool drawSelect(bool prio) {
 }
 
 static bool drawSelectBG(const bool prio) {
-    switch (gameData.getCurrentActBGEvent()) {
+    auto event = gameData.getCurrentActBGEvent();
+    if (event != DEBUG::previousBGEvent) {
+        printf("New BG Event %08x\n", event);
+    }
+
+    DEBUG::previousBGEvent = event;
+    switch (event) {
         case LEVEL_ACT_EVENT(HYDRO_CITY_ZONE, 2, HCZ_WALL_EVENT): {
             return prio ? HCZ2_WALL::drawWall() : true;
         }
         case LEVEL_ACT_EVENT(MARBLE_GARDEN_ZONE, 2, 1): {
             // ------------------------------------------------------------
             // For Sonic
-            // If between $800 and $900 Y and > $34C0 X, use second BG move
+            // If between 0x800 and 0x900 Y and > 0x34C0 X, use second BG move
             // If bgEventVar0 is no longer 8, delete collapse manager
             // ------------------------------------------------------------
 
             // ------------------------------------------------------------
             // For Knuckles
-            // If between $80 and $180 Y and > $3800 X, use first BG move
+            // If between 0x80 and 0x180 Y and > 0x3800 X, use first BG move
             // If bgEventVar0 is no longer 4, delete collapse manager
             // ------------------------------------------------------------
 
@@ -713,7 +848,23 @@ static bool drawSelectBG(const bool prio) {
             return CNZ1_BOSS::drawBossBackground<true>(prio);
         }
 
+        case LEVEL_ACT_EVENT(SANDOPOLIS_ZONE, 1, SOZ1_EV::BOSS_INIT):
+        case LEVEL_ACT_EVENT(SANDOPOLIS_ZONE, 1, SOZ1_EV::BOSS_LOOP):
+        case LEVEL_ACT_EVENT(SANDOPOLIS_ZONE, 1, SOZ1_EV::LEVEL_TRANS1):
+        case LEVEL_ACT_EVENT(SANDOPOLIS_ZONE, 1, SOZ1_EV::LEVEL_TRANS2):
+        case LEVEL_ACT_EVENT(SANDOPOLIS_ZONE, 1, SOZ1_EV::LEVEL_TRANS3): {
+            return prio ? SOZ1_EV::drawPyramid() : true;
+        }
+
+        case LEVEL_ACT_EVENT(SKY_SANCTUARY_ZONE, 1, 0): { return SSZ1_EV::drawSpiral(prio); }
+        case LEVEL_ACT_EVENT(SKY_SANCTUARY_ZONE, 1, 1):
+        case LEVEL_ACT_EVENT(SKY_SANCTUARY_ZONE, 1, 2):
+        case LEVEL_ACT_EVENT(SKY_SANCTUARY_ZONE, 1, 3): { SSZ1_EV::start_colapse = std::nullopt; }
+
         default: {
+            if (DEBUG::forceFG) {
+                return drawToBackgroundDefault(prio);
+            }
             return true;
         }
     }
@@ -766,4 +917,54 @@ bool drawToBackground(const bool prio) {
 
     SDL_SetRenderTarget(renderer, nullptr);
     return ret;
+}
+
+bool drawHudText() {
+    using Frame = SpriteMappingFrame;
+    std::vector<FramePosition> out;
+
+    if (!SDL_SetTexturePalette(mappings_texture, full_palette)) {
+        SDL_Log("Couldn't set palette texture: %s", SDL_GetError());
+        return false;
+    }
+    if (!SDL_SetRenderTarget(renderer, hud_texture)) {
+        SDL_Log("Couldn't set render target texture: %s", SDL_GetError());
+        return false;
+    };
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
+    SDL_RenderClear(renderer);
+
+    /*
+     * RING MAPPING:
+     *      0 = Full = 0
+     *      1 = No Ring (Ring = 0 flash)
+     *      2 = No Time (Time > 9min flash)
+     *      3 = 1 + 2
+     *      4 = Just Rings (Bonus Stages?)
+     *      5 = 4 + 1
+     */
+    constexpr int testMapping = 0;
+    for (auto& entry : hud_mappings[testMapping].entries | stdv::reverse) {
+        const s64 mapID = SpriteMappingEntry::mappingIDs[entry.withBase(HUD_ART_TILE_TMP)];
+
+
+        SDL_FRect src{
+            .x = static_cast<float>(2 * (mapID % MAPPING_ENTRY_PER_ROW * SpriteMappingEntry::WIDTH)),
+            .y = static_cast<float>(mapID / MAPPING_ENTRY_PER_ROW * SpriteMappingEntry::WIDTH),
+            .w = static_cast<float>((entry.dim.width+1) * Tile::WIDTH),
+            .h = static_cast<float>((entry.dim.height+1) * Tile::WIDTH)
+        };
+
+        SDL_FRect dst{
+            .x = static_cast<float>(entry.x_pos + 8),
+            .y = static_cast<float>(entry.y_pos + 128+8),
+            .w = static_cast<float>((entry.dim.width+1) * Tile::WIDTH),
+            .h = static_cast<float>((entry.dim.height+1) * Tile::WIDTH)
+        };
+
+        if (!SDL_RenderTexture(renderer, mappings_texture, &src, &dst)) {
+            SDL_Log("Couldn't render texture onto hud texture: %s", SDL_GetError());
+        };
+    }
+    return true;
 }

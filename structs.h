@@ -15,7 +15,11 @@
 #include <array>
 #include <cassert>
 #include <bitset>
+#include <bit>
+#include <cstring>
+#include <ranges>
 #include <unistd.h>
+#include <type_traits>
 #include <sys/socket.h>
 #include <utility>
 #include <map>
@@ -24,6 +28,7 @@
 #include <vector>
 #include <unistd.h>
 #include <unordered_set>
+
 
 /*
 
@@ -236,7 +241,7 @@ struct BatCell {
 
     static inline Map batCache;
 
-    static BatCell fromBytes(u8* data) {
+    static BatCell fromBytes(const u8* data) {
         return {
             .vram_index = static_cast<u16> (data[1] + (data[0]&0b111) * (1 << 8)),
             .flip_x = static_cast<bool> (data[0]&0b1000),
@@ -507,10 +512,7 @@ struct SpriteMappingEntry {
     static inline Map mappingIDs;
     static inline std::vector<pixelType> mappingPixels = std::vector<pixelType>(8);
 
-    static SpriteMappingEntry fromSocket(FILE* dataStream) {
-        u8 data[sizeof(SpriteMappingEntry)];
-        recvStrict(dataStream, reinterpret_cast<char*>(&data), sizeof(SpriteMappingEntry));
-
+    static SpriteMappingEntry fromBytes(const u8* data) {
         SpriteMappingEntry result {
             .y_pos = static_cast<s8>(data[0]),
             .dim = {
@@ -522,6 +524,12 @@ struct SpriteMappingEntry {
         };
 
         return result;
+    }
+
+    static SpriteMappingEntry fromSocket(FILE* dataStream) {
+        u8 data[sizeof(SpriteMappingEntry)];
+        recvStrict(dataStream, reinterpret_cast<char*>(&data), sizeof(SpriteMappingEntry));
+        return fromBytes(data);
     }
 private:
     void for_rows(const stdr::range auto& rows, stdr::range auto& output, int tileX, const auto& map) const {
@@ -599,6 +607,20 @@ public:
 struct SpriteMappingFrame {
     s16 size{};
     std::vector<SpriteMappingEntry> entries;
+
+    constexpr static SpriteMappingFrame fromBytes(const u8* data)  {
+        s16 size;
+        std::memcpy(&size, data, sizeof(size));
+        data += sizeof(size);
+        SpriteMappingFrame result{};
+        result.size = size;
+        result.entries.reserve(size);
+        for (int i = 0; i < size; ++i) {
+            result.entries.push_back(SpriteMappingEntry::fromBytes(data));
+            data += sizeof(SpriteMappingEntry);
+        }
+        return result;
+    }
 
     static SpriteMappingFrame fromSocket(FILE* dataStream) {
         s16 size;
@@ -1028,6 +1050,7 @@ struct RenderingData {
     u16 lbzDeathEggEvent;
     u16 gamePaused;
     u16 lagFrames;
+    u16 frameCount;
 
 
     static void clearCaches() {

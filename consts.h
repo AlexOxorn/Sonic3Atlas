@@ -37,10 +37,12 @@ constexpr std::pair<int, int> scale16(const std::pair<int, int> &in) {
 }
 
 constexpr inline std::pair GENESIS_RESOLUTION(320, 224);
+constexpr inline std::pair WIDESCREEN_GEN = R_FROM_HEIGHT(GENESIS_RESOLUTION.second);
 extern bool dynamicResolution;
 extern std::pair<int, int> INTERNAL_RESOLUTION;
 extern std::pair<int, int> OUTPUT_RESOLUTION;
 extern std::optional<std::string> FFMPEG_OUT;
+extern std::optional<std::string> FFMPEG_AUDIO;
 extern const char* FFMPEG_CODEC;
 
 #define WINDOW_WIDTH OUTPUT_RESOLUTION.first
@@ -111,6 +113,14 @@ constexpr inline u8 CNZ1_PRE_BOSS_EVENT = 0x1;
 constexpr inline u8 CNZ1_BOSS_EVENT = 0x2;
 constexpr inline u8 CNZ1_POST_BOSS_EVENT = 0x3;
 
+namespace SOZ1_EV {
+    constexpr inline u8 BOSS_INIT = 0x1;
+    constexpr inline u8 BOSS_LOOP = 0x2;
+    constexpr inline u8 LEVEL_TRANS1 = 0x3;
+    constexpr inline u8 LEVEL_TRANS2 = 0x4;
+    constexpr inline u8 LEVEL_TRANS3 = 0x5;
+}
+
 #define LEVEL_ACT(LVL, ACT) (\
     ((LVL) == LAVA_REEF_ZONE && (ACT) == 3) ? (HIDDEN_PALACE_ZONE << 8) : \
     ((LVL) == HIDDEN_PALACE_ZONE && (ACT) <= 1) ? ((HIDDEN_PALACE_ZONE << 8) + 1) : \
@@ -169,6 +179,7 @@ inline constexpr auto SCALE_MODE = SDL_SCALEMODE_LINEAR;
 
 extern SDL_Palette* low_prio_palette;
 extern SDL_Palette* high_prio_palette;
+extern SDL_Palette* full_palette;
 extern SDL_Palette* transparency_mask_palette;
 extern std::array<SDL_Texture*, 4> level_textures;
 extern SDL_Texture* tiles_texture;
@@ -183,6 +194,7 @@ extern SDL_Texture* ffmpeg_texture;
 extern SDL_Texture* translucency_mask_texture;
 extern SDL_Texture* make_transparent_mask;
 extern SDL_Texture* fullscreen_texture;
+extern SDL_Texture* hud_texture;
 extern SDL_Window    *window;
 extern SDL_Renderer  *renderer;
 extern SDL_BlendMode transparencyBlend;
@@ -231,5 +243,63 @@ extern OOB y_loop;
 #define CLAMP_Y (y_loop == OOB::CLAMP && gameData.screen_min_y >= 0)
 
 #define PRESENTATION_MODE ( RENDER_WIDTH > WINDOW_WIDTH ? SDL_LOGICAL_PRESENTATION_OVERSCAN : SDL_LOGICAL_PRESENTATION_LETTERBOX )
+
+constexpr inline u8 f1[] = { 0xA, 0,
+     0x80, 0xD,0x20,  0,  0,  0,
+     0x80, 0xD,0x20,0x18,  0,0x20,
+     0x80, 0xD,0x20,0x20,  0,0x40,
+     0x90, 0xD,0x20,0x10,  0,  0,
+     0x90, 0xD,0x20,0x28,  0,0x28,
+     0xA0, 0xD,0x20,  8,  0,  0,
+     0xA0,  1,0x20,  0,  0,0x20,
+     0xA0,  9,0x20,0x30,  0,0x30,
+     0x40,  5,  1, 0xA,  0,  0,
+    0x40, 0xD,0x21, 0xE,  0,0x10};
+
+constexpr inline u8 f2[] = {8, 0,
+    0x80, 0xD,0x20,  0,  0,  0,
+    0x80, 0xD,0x20,0x18,  0,0x20,
+    0x80, 0xD,0x20,0x20,  0,0x40,
+    0x90, 0xD,0x20,0x10,  0,  0,
+    0x90, 0xD,0x20,0x28,  0,0x28,
+    0xA0,  9,0x20,0x30,  0,0x30,
+    0x40,  5,  1, 0xA,  0,  0,
+    0x40, 0xD,0x21, 0xE,  0,0x10};
+
+constexpr inline u8 f3[] = {9,0,
+    0x80, 0xD,0x20,  0,  0,  0,
+    0x80, 0xD,0x20,0x18,  0,0x20,
+    0x80, 0xD,0x20,0x20,  0,0x40,
+    0x90, 0xD,0x20,0x28,  0,0x28,
+    0xA0, 0xD,0x20,  8,  0,  0,
+    0xA0,  1,0x20,  0,  0,0x20,
+    0xA0,  9,0x20,0x30,  0,0x30,
+    0x40,  5,  1, 0xA,  0,  0,
+    0x40, 0xD,0x21, 0xE,  0,0x10};
+
+constexpr inline u8 f4[] = {	 7,0,
+    0x80, 0xD,0x20,  0,  0,  0,
+    0x80, 0xD,0x20,0x18,  0,0x20,
+    0x80, 0xD,0x20,0x20,  0,0x40,
+    0x90, 0xD,0x20,0x28,  0,0x28,
+    0xA0,  9,0x20,0x30,  0,0x30,
+    0x40,  5,  1, 0xA,  0,  0,
+    0x40, 0xD,0x21, 0xE,  0,0x10};
+
+constexpr inline u8 f5[] = {	 5,0,
+    0x80, 0xD,0x20,  8,  0,  0,
+    0x80,  1,0x20,  0,  0,0x20,
+    0x80,  9,0x20,0x30,  0,0x30,
+    0x40,  5,  1, 0xA,  0,  0,
+    0x40, 0xD,0x21, 0xE,  0,0x10};
+
+constexpr inline u8 f6[] = {	 3,0,
+    0x80,  9,0x20,0x30,  0,0x30,
+    0x40,  5,  1, 0xA,  0,  0,
+    0x40, 0xD,0x21, 0xE,  0,0x10};
+
+constexpr inline auto HUD_ART_TILE_TMP = BatCell{.vram_index = 0x6CA, .flip_x = false, .flip_y = false, .palette = 0, .priority = true};
+
+const extern std::array<SpriteMappingFrame, 6> hud_mappings;
 
 #endif //SONIC3ATLUS_CONSTS_H
