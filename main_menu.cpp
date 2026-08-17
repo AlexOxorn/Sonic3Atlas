@@ -176,6 +176,15 @@ namespace Menu {
         return SDL_APP_CONTINUE;
     }
 
+    static void displayFile(std::string base) {
+        static char* home = getenv("HOME");
+        static size_t home_len = strlen(home);
+        if (size_t pos = base.find(home); pos != std::string::npos) {
+            base.replace(pos, home_len, "~");
+        }
+        ImGui::Text("%s", base.c_str());
+    }
+
     SDL_AppResult EVENT(void* appstate, SDL_Event* event) {
         ImGui_ImplSDL3_ProcessEvent(event);
         if (event->type == SDL_EVENT_QUIT)
@@ -238,7 +247,7 @@ namespace Menu {
                     SelectFile(path, filters, path);
                 };
                 ImGui::SameLine();
-                ImGui::Text("%s", path.c_str());
+                displayFile(path);
             } else if (in_type_selected == 1) {
                 ImGui::Text("Not Yet Implemented");
             }
@@ -262,7 +271,7 @@ namespace Menu {
                     config.ffmpeg.filename = bufferFilename;
                 }
                 const auto filename = stdfs::path(config.ffmpeg.directory) / stdfs::path(config.ffmpeg.filename);
-                ImGui::Text("%s", filename.c_str());
+                displayFile(filename.c_str());
                 if (ImGui::Checkbox("Stream In Audio", &config.ffmpeg.withAudio)) {
                 }
                 if (config.ffmpeg.withAudio) {
@@ -273,7 +282,7 @@ namespace Menu {
                         SelectFile(config.ffmpeg.audioInput, filters, config.ffmpeg.audioInput);
                     };
                     ImGui::SameLine();
-                    ImGui::Text("%s", config.ffmpeg.audioInput.c_str());
+                    displayFile(config.ffmpeg.audioInput);
                 }
                 strcpy(bufferEncoder, config.ffmpeg.video_encoder.c_str());
                 if (ImGui::InputText("Video Encoder", bufferEncoder, 128, ImGuiInputTextFlags_EnterReturnsTrue)) {
