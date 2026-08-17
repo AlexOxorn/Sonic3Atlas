@@ -248,6 +248,46 @@ struct BatCell {
         };
     }
 
+    BatCell operator+(const BatCell& other) const {
+        const u16 l_tile = vram_index;
+        const u16 r_tile = other.vram_index;
+        const u8 l_x = flip_x;
+        const u8 r_x = other.flip_x;
+        const u8 l_y = flip_y;
+        const u8 r_y = other.flip_y;
+        const u8 l_pal = palette;
+        const u8 r_pal = other.palette;
+        const u8 l_prio = priority;
+        const u8 r_prio = other.priority;
+
+        u16 new_tile = l_tile + r_tile;
+        u16 carry = new_tile >> 11;
+        new_tile &= 0b111'1111'1111;
+
+        u16 new_x = l_x + r_x + carry;
+        carry = new_x >> 1;
+        new_x &= 1;
+
+        u16 new_y = l_y + r_y + carry;
+        carry = new_y >> 1;
+        new_y &= 1;
+
+        u16 new_palette = l_pal + r_pal + carry;
+        carry = new_palette >> 2;
+        new_palette &= 0b11;
+
+        u16 new_prio = l_prio + r_prio + carry;
+        new_prio &= 1;
+
+        return BatCell{
+            .vram_index = new_tile,
+            .flip_x = !!new_x,
+            .flip_y = !!new_y,
+            .palette = static_cast<u8>(new_palette),
+            .priority = !!new_prio
+        };
+    }
+
     static BatCell fromSocket(FILE* dataStream) {
         u8 data[sizeof(BatCell)];
         recvStrict(dataStream, reinterpret_cast<char*>(data), sizeof(data));
@@ -582,9 +622,7 @@ private:
 public:
     [[nodiscard]] SpriteMappingEntry withBase(const BatCell& base) const {
         auto cpy = *this;
-        cpy.art_tile.vram_index += base.vram_index;
-        cpy.art_tile.priority |= base.priority;
-        cpy.art_tile.palette |= base.palette;
+        cpy.art_tile = cpy.art_tile + base;
         return cpy;
     }
 
@@ -1048,6 +1086,8 @@ struct RenderingData {
     u16 gamePaused;
     u16 lagFrames;
     u16 frameCount;
+    u16 shakeFlag;
+    s16 shakeOffset;
 
 
     static void clearCaches() {
