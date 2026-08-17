@@ -103,6 +103,8 @@ bool pauseData = false;
 float SpeedChangeMsgTimer = 0.0f;
 float FileChangeMsgTimer = 0.0f;
 bool skipToNextLevel = false;
+bool skipToNextFGEvent = false;
+bool skipToNextBGEvent = false;
 
 int inputFD = -1;
 FILE* inputStream = nullptr;

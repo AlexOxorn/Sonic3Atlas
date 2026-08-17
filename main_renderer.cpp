@@ -517,7 +517,9 @@ namespace Output {
     static std::vector<std::string> binFiles;
     static long fileIndex = 0;
 
-    template<class... Ts> struct overload : Ts... { using Ts::operator()...; };
+    template<class... Ts> struct overload : Ts... {
+        using Ts::operator()...;
+    };
 
 #define RENDER_TOGGLE_EVENT(x)                                                                                         \
     case SDLK_##x: {                                                                                                   \
@@ -543,25 +545,32 @@ namespace Output {
         return resolution;
     }
 
+#define LOOP_UNTIL_CHANGE(Flag, X)                                                                                     \
+    const u32 currentZoneAct = gameData.X;                                                                             \
+    while (currentZoneAct == gameData.X) {                                                                             \
+        flags |= getNextFrame(inputStream);                                                                            \
+        if (flags & FRAME_EOF)                                                                                         \
+            break;                                                                                                     \
+    }                                                                                                                  \
+    Flag = false;                                                                                                      \
+    flags &= ~LAG_FRAME;
+
     static updateResult update_data() {
         s32 flags = 0;
         progress += std::pow(1.5f, speed);
-        if (!skipToNextLevel) {
+        if (skipToNextLevel) {
+            LOOP_UNTIL_CHANGE(skipToNextLevel, currentZoneAct);
+        } else if (skipToNextBGEvent) {
+            LOOP_UNTIL_CHANGE(skipToNextBGEvent, getCurrentActBGEvent());
+        } else if (skipToNextFGEvent) {
+            LOOP_UNTIL_CHANGE(skipToNextFGEvent, getCurrentActFGEvent());
+        } else {
             if (progress < 1.0f)
                 return UPDATE_SUCCESS;
             while (progress >= 1.0f) {
                 progress -= 1.0f;
                 flags |= getNextFrame(inputStream);
             }
-        } else {
-            const u16 currentZoneAct = gameData.currentZoneAct;
-            while (currentZoneAct == gameData.currentZoneAct) {
-                flags |= getNextFrame(inputStream);
-                if (flags & FRAME_EOF)
-                    break;
-            }
-            skipToNextLevel = false;
-            flags &= ~LAG_FRAME;
         }
 
         if (dynamicResolution) {
@@ -663,7 +672,7 @@ namespace Output {
 
     static bool render_master_texture() {
         SDL_FRect dst = {
-            .x = 0.0f, .y = 0.0f, .w = static_cast<float>(RENDER_WIDTH), .h = static_cast<float>(RENDER_HEIGHT)};
+                .x = 0.0f, .y = 0.0f, .w = static_cast<float>(RENDER_WIDTH), .h = static_cast<float>(RENDER_HEIGHT)};
         SDL_FRect src = {.x = trueFMod(scrollX, Chunk::WIDTH),
                          .y = trueFMod(scrollY, Chunk::WIDTH),
                          .w = RENDER_WIDTH / scale,
@@ -755,12 +764,12 @@ namespace Output {
         }
 
         auto leftBoundary = std::max(-1.0f, gameData.screen_min_x - scrollX);
-        auto rightBoundary =
-                std::min(static_cast<float>(RENDER_WIDTH)+1.f, gameData.screen_max_x - scrollX + GENESIS_RESOLUTION.first);
+        auto rightBoundary = std::min(static_cast<float>(RENDER_WIDTH) + 1.f,
+                                      gameData.screen_max_x - scrollX + GENESIS_RESOLUTION.first);
         auto topBoundary = gameData.screen_min_y < 0 ? 0 : std::max(-1.0f, gameData.screen_min_y - scrollY);
         auto bottomBoundary = gameData.screen_min_y < 0
                 ? RENDER_HEIGHT
-                : std::min(static_cast<float>(RENDER_HEIGHT)+1.f,
+                : std::min(static_cast<float>(RENDER_HEIGHT) + 1.f,
                            gameData.screen_max_y - scrollY + GENESIS_RESOLUTION.second);
 
         SDL_FRect boundary = {.x = leftBoundary,
@@ -909,17 +918,16 @@ namespace Output {
             return SDL_APP_FAILURE;
         }
 
-        bool success = std::visit(overload{
-            [](const Options::FileInStream& f) {
-                std::println("Path: {}", f.path);
-                operFile(f.path.c_str());
-                return true;
-            },
-            [] (const Options::SocketInStream& s) {
-                SDL_Log("Socket Not Implemented Yet");
-                return false;
-            }
-        }, config.inStream);
+        bool success = std::visit(overload{[](const Options::FileInStream& f) {
+                                               std::println("Path: {}", f.path);
+                                               operFile(f.path.c_str());
+                                               return true;
+                                           },
+                                           [](const Options::SocketInStream& s) {
+                                               SDL_Log("Socket Not Implemented Yet");
+                                               return false;
+                                           }},
+                                  config.inStream);
 
         if (!success)
             return SDL_APP_FAILURE;
@@ -1074,6 +1082,14 @@ namespace Output {
                         skipToNextLevel = true;
                         break;
                     }
+                    case SDLK_X: {
+                        skipToNextBGEvent = true;
+                        break;
+                    }
+                    case SDLK_C: {
+                        skipToNextFGEvent = true;
+                        break;
+                    }
                     case SDLK_R: {
                         if (inputIsFile) {
                             fseek(inputStream, 0, SEEK_SET);
@@ -1147,22 +1163,21 @@ namespace Output {
             if (x_loop == Options::OOB::CLAMP && scrollX < 0)
                 scrollX = 0;
             if (!gameData.level_chunks.empty()) {
-                if (x_loop == Options::OOB::CLAMP && scrollX >= gameData.level_chunks[0].size() * Chunk::WIDTH - RENDER_WIDTH)
+                if (x_loop == Options::OOB::CLAMP &&
+                    scrollX >= gameData.level_chunks[0].size() * Chunk::WIDTH - RENDER_WIDTH)
                     scrollX = gameData.level_chunks[0].size() * Chunk::WIDTH - RENDER_WIDTH;
 
 
                 if (dynamicResolution && gameData.level_chunks.size() * Chunk::WIDTH <= RENDER_HEIGHT) {
                     scrollY = 0;
-                }
-                else if (CLAMP_Y && scrollY < 0) {
+                } else if (CLAMP_Y && scrollY < 0) {
                     scrollY = 0;
                 } else if (CLAMP_Y && scrollY >= gameData.level_chunks.size() * Chunk::WIDTH - RENDER_HEIGHT)
                     scrollY = gameData.level_chunks.size() * Chunk::WIDTH - RENDER_HEIGHT;
                 else {
                     scrollY = static_cast<float>(gameData.scroll_y - RENDER_HEIGHT / 2);
                 }
-            }
-            else {
+            } else {
                 scrollX = 0;
                 scrollY = 0;
             }

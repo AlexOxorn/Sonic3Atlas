@@ -590,7 +590,28 @@ static bool drawToLevelDefault(const bool prio) {
     return res;
 }
 
-namespace AIZ2_SHIP {
+static bool drawBGSubset(int lowX, int lowY, int highX, int highY) {
+    const int offsetX = gameData.screen_position_A.first - gameData.screen_position_B.first;
+    const int offsetY = gameData.screen_position_A.second - gameData.screen_position_B.second;
+    const GET_LEFTMOST;
+    const GET_TOPMOST;
+    const auto water_line_coord = static_cast<float>(gameData.water_line - (topmostChunk*Chunk::WIDTH));
+    auto res = drawPlane2(
+        gameData.background_chunks,
+        offsetX + (lowX - leftmostChunk) * Chunk::WIDTH,
+        offsetY + (lowY - topmostChunk) * Chunk::WIDTH,
+        lowX,
+        lowY,
+        highX,
+        highY,
+        water_line_coord);
+
+    return res;
+}
+
+namespace AIZ2 {
+    static constexpr u8 E_FLYING_BOMB_SHIP = 0x2;
+    
     static constexpr s32 propellerMapAddr = 0x23C182;
     static constexpr s32 SHIP_CHUNK_X = 123;
     static constexpr s32 SHIP_CHUNK_Y = 19;
@@ -658,26 +679,9 @@ namespace AIZ2_SHIP {
     }
 }
 
-static bool drawBGSubset(int lowX, int lowY, int highX, int highY) {
-    const int offsetX = gameData.screen_position_A.first - gameData.screen_position_B.first;
-    const int offsetY = gameData.screen_position_A.second - gameData.screen_position_B.second;
-    const GET_LEFTMOST;
-    const GET_TOPMOST;
-    const auto water_line_coord = static_cast<float>(gameData.water_line - (topmostChunk*Chunk::WIDTH));
-    auto res = drawPlane2(
-        gameData.background_chunks,
-        offsetX + (lowX - leftmostChunk) * Chunk::WIDTH,
-        offsetY + (lowY - topmostChunk) * Chunk::WIDTH,
-        lowX,
-        lowY,
-        highX,
-        highY,
-        water_line_coord);
 
-    return res;
-}
-
-namespace HCZ2_WALL {
+namespace HCZ2 {
+    constexpr u8 WALL_EVENT = 0x1;
     constexpr int WALL_CHUNK_START_X = 4;
     constexpr int WALL_CHUNK_START_Y = 2;
     constexpr int WALL_CHUNK_END_X = 8;
@@ -688,7 +692,11 @@ namespace HCZ2_WALL {
     }
 }
 
-namespace CNZ1_BOSS {
+namespace CNZ1 {
+    constexpr inline u8 PRE_BOSS_EVENT = 0x1;
+    constexpr inline u8 BOSS_EVENT = 0x2;
+    constexpr inline u8 POST_BOSS_EVENT = 0x3;
+    
     template<bool loop>
     static bool drawBossBackground(const bool prio) {
         int offsetX = gameData.screen_position_A.first - gameData.screen_position_B.first;
@@ -719,7 +727,13 @@ namespace CNZ1_BOSS {
 
 }
 
-namespace SOZ1_EV {
+namespace SOZ1 {
+    constexpr inline u8 BOSS_INIT = 0x1;
+    constexpr inline u8 BOSS_LOOP = 0x2;
+    constexpr inline u8 LEVEL_TRANS1 = 0x3;
+    constexpr inline u8 LEVEL_TRANS2 = 0x4;
+    constexpr inline u8 LEVEL_TRANS3 = 0x5;
+    
     constexpr int PYRAMID_CHUNK_START_X = 11;
     constexpr int PYRAMID_CHUNK_START_Y = 2;
     constexpr int PYRAMID_CHUNK_END_X = 14;
@@ -729,7 +743,7 @@ namespace SOZ1_EV {
     }
 }
 
-namespace SSZ1_EV {
+namespace SSZ1 {
     static std::optional<s16> start_colapse = std::nullopt;
 
     static bool drawSpiral(bool prio) {
@@ -793,11 +807,22 @@ namespace SSZ1_EV {
     }
 }
 
+namespace FBZ2 {
+    constexpr u8 BOSS_CLIMB = 0x4;
+    constexpr int BG_CHUNK_START_X = 8;
+    constexpr int BG_CHUNK_START_Y = 1;
+    constexpr int BG_CHUNK_END_X = 36;
+    constexpr int BG_CHUNK_END_Y = 11;
+    static bool drawChaseBG() {
+        return drawBGSubset(BG_CHUNK_START_X, BG_CHUNK_START_Y, BG_CHUNK_END_X, BG_CHUNK_END_Y);
+    }
+}
+
 static bool drawSelect(bool prio) {
     switch (gameData.getCurrentActFGEvent()) {
-        case LEVEL_ACT_EVENT(ANGLE_ISLAND_ZONE, 2, AIZ_FLYING_BOMB_SHIP): {
+        case LEVEL_ACT_EVENT(ANGLE_ISLAND_ZONE, 2, AIZ2::E_FLYING_BOMB_SHIP): {
             const bool x = drawToLevelDefault(prio);
-            const bool y = prio ? AIZ2_SHIP::drawShip() : true;
+            const bool y = prio ? AIZ2::drawShip() : true;
             return x && y;
         }
         case LEVEL_ACT_EVENT(HYDRO_CITY_ZONE, 1, 0): {
@@ -822,8 +847,8 @@ static bool drawSelectBG(const bool prio) {
 
     DEBUG::previousBGEvent = event;
     switch (event) {
-        case LEVEL_ACT_EVENT(HYDRO_CITY_ZONE, 2, HCZ_WALL_EVENT): {
-            return prio ? HCZ2_WALL::drawWall() : true;
+        case LEVEL_ACT_EVENT(HYDRO_CITY_ZONE, 2, HCZ2::WALL_EVENT): {
+            return prio ? HCZ2::drawWall() : true;
         }
         case LEVEL_ACT_EVENT(MARBLE_GARDEN_ZONE, 2, 1): {
             // ------------------------------------------------------------
@@ -843,28 +868,32 @@ static bool drawSelectBG(const bool prio) {
             }
             return true;
         }
-        case LEVEL_ACT_EVENT(CARNIVAL_NIGHT_ZONE, 1, CNZ1_PRE_BOSS_EVENT):
-        case LEVEL_ACT_EVENT(CARNIVAL_NIGHT_ZONE, 1, CNZ1_POST_BOSS_EVENT):
-        case LEVEL_ACT_EVENT(CARNIVAL_NIGHT_ZONE, 1, CNZ1_POST_BOSS_EVENT+1):
+        case LEVEL_ACT_EVENT(CARNIVAL_NIGHT_ZONE, 1, CNZ1::PRE_BOSS_EVENT):
+        case LEVEL_ACT_EVENT(CARNIVAL_NIGHT_ZONE, 1, CNZ1::POST_BOSS_EVENT):
+        case LEVEL_ACT_EVENT(CARNIVAL_NIGHT_ZONE, 1, CNZ1::POST_BOSS_EVENT+1):
         {
-            return CNZ1_BOSS::drawBossBackground<false>(prio);
+            return CNZ1::drawBossBackground<false>(prio);
         }
-        case LEVEL_ACT_EVENT(CARNIVAL_NIGHT_ZONE, 1, CNZ1_BOSS_EVENT): {
-            return CNZ1_BOSS::drawBossBackground<true>(prio);
-        }
-
-        case LEVEL_ACT_EVENT(SANDOPOLIS_ZONE, 1, SOZ1_EV::BOSS_INIT):
-        case LEVEL_ACT_EVENT(SANDOPOLIS_ZONE, 1, SOZ1_EV::BOSS_LOOP):
-        case LEVEL_ACT_EVENT(SANDOPOLIS_ZONE, 1, SOZ1_EV::LEVEL_TRANS1):
-        case LEVEL_ACT_EVENT(SANDOPOLIS_ZONE, 1, SOZ1_EV::LEVEL_TRANS2):
-        case LEVEL_ACT_EVENT(SANDOPOLIS_ZONE, 1, SOZ1_EV::LEVEL_TRANS3): {
-            return prio ? SOZ1_EV::drawPyramid() : true;
+        case LEVEL_ACT_EVENT(CARNIVAL_NIGHT_ZONE, 1, CNZ1::BOSS_EVENT): {
+            return CNZ1::drawBossBackground<true>(prio);
         }
 
-        case LEVEL_ACT_EVENT(SKY_SANCTUARY_ZONE, 1, 0): { return SSZ1_EV::drawSpiral(prio); }
+        case LEVEL_ACT_EVENT(FLYING_BATTERY_ZONE, 2, FBZ2::BOSS_CLIMB): {
+            return FBZ2::drawChaseBG();
+        }
+
+        case LEVEL_ACT_EVENT(SANDOPOLIS_ZONE, 1, SOZ1::BOSS_INIT):
+        case LEVEL_ACT_EVENT(SANDOPOLIS_ZONE, 1, SOZ1::BOSS_LOOP):
+        case LEVEL_ACT_EVENT(SANDOPOLIS_ZONE, 1, SOZ1::LEVEL_TRANS1):
+        case LEVEL_ACT_EVENT(SANDOPOLIS_ZONE, 1, SOZ1::LEVEL_TRANS2):
+        case LEVEL_ACT_EVENT(SANDOPOLIS_ZONE, 1, SOZ1::LEVEL_TRANS3): {
+            return prio ? SOZ1::drawPyramid() : true;
+        }
+
+        case LEVEL_ACT_EVENT(SKY_SANCTUARY_ZONE, 1, 0): { return SSZ1::drawSpiral(prio); }
         case LEVEL_ACT_EVENT(SKY_SANCTUARY_ZONE, 1, 1):
         case LEVEL_ACT_EVENT(SKY_SANCTUARY_ZONE, 1, 2):
-        case LEVEL_ACT_EVENT(SKY_SANCTUARY_ZONE, 1, 3): { SSZ1_EV::start_colapse = std::nullopt; }
+        case LEVEL_ACT_EVENT(SKY_SANCTUARY_ZONE, 1, 3): { SSZ1::start_colapse = std::nullopt; }
 
         default: {
             if (DEBUG::forceFG) {

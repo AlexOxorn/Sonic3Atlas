@@ -94,19 +94,6 @@ constexpr inline u8 DOOMSDAY_ZONE = 0xC;
 constexpr inline u8 HIDDEN_PALACE_ZONE = 0x16;
 constexpr inline u8 FINAL_BOSS_ZONE = 0x17;
 
-constexpr inline u8 AIZ_FLYING_BOMB_SHIP = 0x2;
-constexpr inline u8 HCZ_WALL_EVENT = 0x1;
-constexpr inline u8 CNZ1_PRE_BOSS_EVENT = 0x1;
-constexpr inline u8 CNZ1_BOSS_EVENT = 0x2;
-constexpr inline u8 CNZ1_POST_BOSS_EVENT = 0x3;
-
-namespace SOZ1_EV {
-    constexpr inline u8 BOSS_INIT = 0x1;
-    constexpr inline u8 BOSS_LOOP = 0x2;
-    constexpr inline u8 LEVEL_TRANS1 = 0x3;
-    constexpr inline u8 LEVEL_TRANS2 = 0x4;
-    constexpr inline u8 LEVEL_TRANS3 = 0x5;
-}
 
 #define LEVEL_ACT(LVL, ACT) (\
     ((LVL) == LAVA_REEF_ZONE && (ACT) == 3) ? (HIDDEN_PALACE_ZONE << 8) : \
@@ -212,6 +199,8 @@ extern bool pauseData;
 extern float SpeedChangeMsgTimer;
 extern float FileChangeMsgTimer;
 extern bool skipToNextLevel;
+extern bool skipToNextFGEvent;
+extern bool skipToNextBGEvent;
 
 extern int inputFD;
 extern FILE* inputStream;
