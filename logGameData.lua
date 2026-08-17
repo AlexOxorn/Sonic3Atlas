@@ -5,6 +5,9 @@ PLANE_A_Y = 0xEE84
 PLANE_B_X = 0xEE8C
 PLANE_B_Y = 0xEE90
 
+PLANE_SHAKE_FLAG = 0xEECC
+PLANE_SHAKE_Y_OFF = 0xEECE
+
 H_INTERRUPT_COUNT = 0xF644
 H_INTERRUPT_JUMP = 0x7FFFF6
 
@@ -116,48 +119,6 @@ S_ADDR_H = 14
 function dontCare()
     VDP_mock.CARE = false;
 end
-
-
-event.on_bus_write (function (addr, val, flags)
-    -- Auto Inc Register
-    if (val >= 0x8F00 and val < 0x9000) then
-        VDP_mock.AUTO_INC = val & (0xFF)
-    end
-
-    if (val >= 0x8700 and val < 0x8800) then
-        BACKGROUND_COLOR = val & 0xFF
-    end
-
-    -- CD0 = 1
-    if (val < 0x40000000) then return dontCare() end
-
-    -- VRAM = CD1-3 : 000
-    if ((val & B_CD1) ~= 0) then return dontCare() end
-    if ((val & B_CD2) ~= 0) then return dontCare() end
-    if ((val & B_CD3) ~= 0) then return dontCare() end
-
-    -- DMA = CD5
-    if ((val & B_CD5) ~= 0) then return dontCare() end
-
-    -- VRAM TO VRAM copy = CD4
-    if ((val & B_CD4) ~= 0) then return dontCare() end
-
-    local address_low = (val & B_ADDR_L) >> S_ADDR_L;
-    local address_high = (val & B_ADDR_H) << S_ADDR_H;
-
-    VDP_mock.CARE = true
-    VDP_mock.ADDRESS = address_high + address_low
-    VDP_mock.WRITE = true
-    VDP_mock.RAM = R_VRAM
-    VDP_mock.VtoV = false
-    VDP_mock.DMA = false
-end, VDP_control_port)
-
-event.on_bus_write (function (addr, val, flags)
-    if (not VDP_mock.CARE) then return end
-    MarkVRAM()
-    VDP_mock.ADDRESS = VDP_mock.ADDRESS + VDP_mock.AUTO_INC
-end, VDP_data_port);
 
 VRAM_AREA = {
     WINDOW = {0x8000, 0x0000},  -- 0x400 to 0x480
@@ -281,7 +242,7 @@ function Connection:new(useFile, filename)
         end
         print(self.client, err)
 
-            event.unregisterbyid(serv_only)
+        event.unregisterbyid(serv_only)
         self.exp = event.onexit(function()
             if self.client then self.client:close() end
             if self.server then self.server:close() end
@@ -306,6 +267,14 @@ function Connection:new(useFile, filename)
     self.lag = false
 
     return o
+end
+
+function Connection:clean()
+    if self.client and self.client.close ~= nil then self.client:close() end
+    if self.client and self.client.file ~= nil then self.client.file:close() end
+    if self.server then self.server:close() end
+    self.client = nil
+    self.server = nil
 end
 
 function Connection:send_ring_placement()
@@ -387,6 +356,12 @@ function Connection:DMAQueueAddCallback()
 
     local srcData = readBytesToString(src, len, 'M68K BUS')
     self.vram_updates[dst] = srcData
+end
+
+function Connection:sendShakeData()
+    self.client:send('SHAKEOFF')
+    self.client:send(int_to_bytes(memory.read_u16_be(PLANE_SHAKE_FLAG, '68K RAM'),2))
+    self.client:send(int_to_bytes(memory.read_u16_be(PLANE_SHAKE_Y_OFF, '68K RAM'),2))
 end
 
 function Connection:send_vram_updates()
@@ -697,46 +672,184 @@ function Connection:send_vram()
     timeFunction(false, 'send_events_data', function() connection:send_events_data() end)
     self.client:send('GAMEMODE')
     self.client:send(int_to_bytes(currentGameMode, 1))
+    connection:sendShakeData()
     connection:wait_for_response()
 end
 
+-- CREATE FORM
 
-connection = Connection:new(true, "TAS.bin")
+cwd = io.popen"pwd":read'*l'
 
-FRAME_LOOP = 0
-render_sprite = false
-render_vram = false
-render_else = false
+local Options = {
+    outputType = "file",
+    directory = cwd,
+    filename = "out.bin",
+    fullOutPath = nil,
+}
 
-connection:ring_mappings()
-connection:send_full_vram()
-connection:send_vram()
 
-local c1 = event.on_bus_exec(function(addr, val, flags)
-    if render_sprite then
-        timeFunction(false, 'sprites', function() connection:send_sprite_data() end)
-        render_sprite = false
-        render_vram = true
+local FORM = forms.newform(500, 180)
+local ANSWERED = false
+local STOP = false
+
+local y = 10
+
+forms.label(FORM, "Logging Output", 10, y)
+y = y + 30
+local OUT_TYPE = forms.dropdown(FORM, {'file', 'socket'}, 10, y, 150, 20)
+y = y + 30
+local OUT_DIR_TEXT = forms.label(FORM, Options.directory, 90, y, 400, 40)
+local OUT_DIR = forms.button(FORM, 'out folder', function()
+    local res = forms.openfile(nil, Options.directory)
+    if #res > 0 then 
+        Options.directory = res
+        forms.settext(OUT_DIR_TEXT, res)
     end
-end, 0x1AD20)
-local c2 = event.on_bus_exec(function(addr, val, flags)
-    if render_vram then
-        connection:send_vram()
-        render_vram = false
-    end
-end, 0x15B8)
-local c3 = event.on_bus_exec(function (addr, val, flags)
-    connection:DMAQueueAddCallback()
-end, DMA_QUEUE_ADD_EXEC_ADDR)
+end, 10, y)
+y = y + 40
+local OUT_FILENAME = forms.textbox(
+    FORM,
+    Options.filename, -- caption
+    nil, -- width
+    nil, -- height
+    nil, -- boxtype
+    10,   -- x
+    y   -- y
+)
+y = y + 30
+
+forms.settext(OUT_TYPE, Options.outputType)
+
+local SUBMIT = forms.button(FORM, 'start', function()
+    ANSWERED = true
+end, 10, y)
+
+local SUBMIT = forms.button(FORM, 'stop', function()
+    STOP = true
+end, 90, y)
+
+
+
 
 while true do
-    timeFunction(false, 'Total Frame', function()
-        emu.frameadvance();
-        connection.client:send('V_BLANK_');
-    end)
-    render_sprite = true
+    while not ANSWERED do
+        emu.yield()
+    end
+
+    -- PARSE FORM OPTIONS
+
+    Options.outputType = forms.gettext(OUT_TYPE)
+    Options.filename = forms.gettext(OUT_FILENAME)
+    Options.fullOutPath = string.format("%s/%s", Options.directory, Options.filename)
+    Options.withMovie = false
+
+    if movie.isloaded() then
+        Options.withMovie = true
+        movie.play_from_start()
+    end
+
+    connection = Connection:new(Options.outputType == "file", Options.fullOutPath)
+
+    VDP_STATUS_WRITES = event.on_bus_write (function (addr, val, flags)
+        -- Auto Inc Register
+        if (val >= 0x8F00 and val < 0x9000) then
+            VDP_mock.AUTO_INC = val & (0xFF)
+        end
+
+        if (val >= 0x8700 and val < 0x8800) then
+            BACKGROUND_COLOR = val & 0xFF
+        end
+
+        -- CD0 = 1
+        if (val < 0x40000000) then return dontCare() end
+
+        -- VRAM = CD1-3 : 000
+        if ((val & B_CD1) ~= 0) then return dontCare() end
+        if ((val & B_CD2) ~= 0) then return dontCare() end
+        if ((val & B_CD3) ~= 0) then return dontCare() end
+
+        -- DMA = CD5
+        if ((val & B_CD5) ~= 0) then return dontCare() end
+
+        -- VRAM TO VRAM copy = CD4
+        if ((val & B_CD4) ~= 0) then return dontCare() end
+
+        local address_low = (val & B_ADDR_L) >> S_ADDR_L;
+        local address_high = (val & B_ADDR_H) << S_ADDR_H;
+
+        VDP_mock.CARE = true
+        VDP_mock.ADDRESS = address_high + address_low
+        VDP_mock.WRITE = true
+        VDP_mock.RAM = R_VRAM
+        VDP_mock.VtoV = false
+        VDP_mock.DMA = false
+    end, VDP_control_port)
+
+    VDP_DATA_WRITES = event.on_bus_write (function (addr, val, flags)
+        if (not VDP_mock.CARE) then return end
+        MarkVRAM()
+        VDP_mock.ADDRESS = VDP_mock.ADDRESS + VDP_mock.AUTO_INC
+    end, VDP_data_port);
+
+
+    FRAME_LOOP = 0
+    render_sprite = false
+    render_vram = false
+    render_else = false
+
+    VDP_mock = {
+        WRITE = false,
+        ADDRESS = 0,
+        RAM = R_VRAM,
+        VtoV = false,
+        DMA = false,
+        CARE = false,
+        BACKGROUND_COLOR = 0,
+
+        AUTO_INC = 2
+    }
+    VRAM_ADDR_CHANGED_LAST_FRAME = {}
+    VRAM_ADDR_CHANGED = {}
+
+    connection:ring_mappings()
+    connection:send_full_vram()
+    connection:send_vram()
+
+    local c1 = event.on_bus_exec(function(addr, val, flags)
+        if render_sprite then
+            timeFunction(false, 'sprites', function() connection:send_sprite_data() end)
+            render_sprite = false
+            render_vram = true
+        end
+    end, 0x1AD20)
+    local c2 = event.on_bus_exec(function(addr, val, flags)
+        if render_vram then
+            connection:send_vram()
+            render_vram = false
+        end
+    end, 0x15B8)
+    local c3 = event.on_bus_exec(function (addr, val, flags)
+        connection:DMAQueueAddCallback()
+    end, DMA_QUEUE_ADD_EXEC_ADDR)
+
+    while not STOP do
+        timeFunction(false, 'Total Frame', function()
+            emu.frameadvance();
+            connection.client:send('V_BLANK_');
+        end)
+        render_sprite = true
+        if Options.withMovie and movie.mode() == "FINISHED" then break end
+    end
+    ANSWERED = false
+    STOP = false
+
+    event.unregisterbyid(c1)
+    event.unregisterbyid(c2)
+    event.unregisterbyid(c3)
+    event.unregisterbyid(VDP_STATUS_WRITES)
+    event.unregisterbyid(VDP_DATA_WRITES)
+
+    connection:clean()
 end
-
-
 
 -- connection:send_single_chunk()
