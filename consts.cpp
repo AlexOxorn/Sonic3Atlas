@@ -6,6 +6,8 @@
 
 SDL_Palette* low_prio_palette = nullptr;
 SDL_Palette* high_prio_palette = nullptr;
+SDL_Palette* low_grey_palette = nullptr;
+SDL_Palette* high_grey_palette = nullptr;
 SDL_Palette* full_palette = nullptr;
 SDL_Palette* transparency_mask_palette = nullptr;
 SDL_Palette* high_priority_mask_palette = nullptr;
@@ -13,6 +15,7 @@ SDL_Palette* low_priority_mask_palette = nullptr;
 std::array<SDL_Texture*, 4> level_textures{};
 SDL_Texture* tiles_texture = nullptr;
 SDL_Texture* chunks_texture = nullptr;
+SDL_Texture* grey_chunks_texture = nullptr;
 SDL_Texture* mappings_texture = nullptr;
 SDL_Texture* sprite_texture_high = nullptr;
 SDL_Texture* sprite_texture_low = nullptr;

@@ -148,6 +148,11 @@ shifted right by 1 pixel to blend neighbouring dithered pixels.
  */
 
 
+static u8 to_grey_scale(Color8Bit color) {
+    auto [red, green, blue] = color;
+    return static_cast<u8>(0.299 * red + 0.587 * green + 0.114 * blue);
+};
+
 void cleanupDestTextures() {
     SDL_DestroyTexture(rings_texture);
     stdr::for_each(level_textures, SDL_DestroyTexture);
@@ -160,6 +165,7 @@ void cleanupDestTextures() {
 void cleanupSrcTextures() {
     SDL_DestroyTexture(tiles_texture);
     SDL_DestroyTexture(chunks_texture);
+    SDL_DestroyTexture(grey_chunks_texture);
     SDL_DestroyTexture(translucency_mask_texture);
     SDL_DestroyTexture(mappings_texture);
 
@@ -308,6 +314,18 @@ bool initSourceTextures() {
     SDL_SetTextureScaleMode(chunks_texture, SCALE_MODE);
     SDL_SetTextureBlendMode(chunks_texture, SDL_BLENDMODE_BLEND);
 
+    grey_chunks_texture = SDL_CreateTexture(renderer,
+    pixelFormat,
+    SDL_TEXTUREACCESS_STREAMING,
+    Chunk::WIDTH*16,
+    Chunk::WIDTH * ChunkMap::COUNT/8);
+    if (!grey_chunks_texture) {
+        SDL_Log("Couldn't create grey_chunks_texture: %s", SDL_GetError());
+        return false;
+    }
+    SDL_SetTextureScaleMode(grey_chunks_texture, SCALE_MODE);
+    SDL_SetTextureBlendMode(grey_chunks_texture, SDL_BLENDMODE_BLEND);
+
     translucency_mask_texture = SDL_CreateTexture(renderer,
     SDL_PIXELFORMAT_INDEX8,
     SDL_TEXTUREACCESS_STREAMING,
@@ -351,6 +369,20 @@ bool updatePalette() {
             return false;
         }
     }
+    if (low_grey_palette == nullptr) {
+        low_grey_palette = SDL_CreatePalette(1 << (sizeof(indexedColor) * 8));
+        if (!low_grey_palette) {
+            SDL_Log("Couldn't create palette: %s", SDL_GetError());
+            return false;
+        }
+    }
+    if (high_grey_palette == nullptr) {
+        high_grey_palette = SDL_CreatePalette(1 << (sizeof(indexedColor) * 8));
+        if (!high_grey_palette) {
+            SDL_Log("Couldn't create palette: %s", SDL_GetError());
+            return false;
+        }
+    }
     if (full_palette == nullptr) {
         full_palette = SDL_CreatePalette(1 << (sizeof(indexedColor) * 8));
         if (!full_palette) {
@@ -361,41 +393,38 @@ bool updatePalette() {
 
     std::array<SDL_Color, PALETTE_SIZE*PALETTE_COUNT*2> low{};
     std::array<SDL_Color, PALETTE_SIZE*PALETTE_COUNT*2> high{};
-    std::array<SDL_Color, PALETTE_SIZE*PALETTE_COUNT*2> lowTransparent{};
-    std::array<SDL_Color, PALETTE_SIZE*PALETTE_COUNT*2> highTransparent{};
+    std::array<SDL_Color, PALETTE_SIZE*PALETTE_COUNT*2> low_grey{};
+    std::array<SDL_Color, PALETTE_SIZE*PALETTE_COUNT*2> high_grey{};
 
     auto to_SDL_color = [](const Color8Bit color) {
         return SDL_Color{.r = color.red, .g = color.green, .b = color.blue, .a = 255};
     };
-    auto to_SDL_halfColor = [](const Color8Bit color) {
-        return SDL_Color{.r = color.red, .g = color.green, .b = color.blue, .a = 128};
+    auto to_grey = [] (const Color8Bit color) { return to_grey_scale(color); };
+    auto to_SDL_grey = [](const u8 color) {
+        return SDL_Color{.r = color, .g = color, .b = color, .a = 128};
     };
     const auto low_out = low.begin();
     const auto high_out = high.begin();
-    const auto lowT_out = lowTransparent.begin();
-    const auto highT_out = highTransparent.begin();
+    const auto lowT_out = low_grey.begin();
+    const auto highT_out = high_grey.begin();
 
     // LOW PRIO
     for (auto [i, line] : stdr::views::enumerate(gameData.palette.lines)) {
         stdr::transform(line.colors, low_out + (PALETTE_SIZE * i), to_SDL_color);
-        if constexpr (sizeof(indexedColor) > 1)
-            stdr::transform(line.colors, lowT_out + (PALETTE_SIZE * i), to_SDL_halfColor);
+        stdr::copy(line.colors | stdv::transform(to_grey) | stdv::transform(to_SDL_grey), lowT_out + (PALETTE_SIZE * i));
+        stdr::copy(line.colors | stdv::transform(to_grey) | stdv::transform(to_SDL_grey), lowT_out + (PALETTE_SIZE * (i+4)));
     }
     for (auto [i, line] : stdr::views::enumerate(gameData.water_palette.lines)) {
         stdr::transform(line.colors, low_out + (PALETTE_SIZE * (i+4)), to_SDL_color);
-        if constexpr (sizeof(indexedColor) > 1)
-            stdr::transform(line.colors, lowT_out + (PALETTE_SIZE * (i+4)), to_SDL_halfColor);
     }
     // HIGH PRIO
     for (auto [i, line] : stdr::views::enumerate(gameData.palette.lines)) {
         stdr::transform(line.colors, high_out + (PALETTE_SIZE * (i+8)), to_SDL_color);
-        if constexpr (sizeof(indexedColor) > 1)
-            stdr::transform(line.colors, highT_out + (PALETTE_SIZE * (i+8)), to_SDL_halfColor);
+        stdr::copy(line.colors | stdv::transform(to_grey_scale) | stdv::transform(to_SDL_grey), highT_out + (PALETTE_SIZE * (i+8)));
+        stdr::copy(line.colors | stdv::transform(to_grey_scale) | stdv::transform(to_SDL_grey), highT_out + (PALETTE_SIZE * (i+12)));
     }
     for (auto [i, line] : stdr::views::enumerate(gameData.water_palette.lines)) {
         stdr::transform(line.colors, high_out + (PALETTE_SIZE * (i+12)), to_SDL_color);
-        if constexpr (sizeof(indexedColor) > 1)
-            stdr::transform(line.colors, highT_out + (PALETTE_SIZE * (i+12)), to_SDL_halfColor);
     }
 
     low_out[0] = {.r=0,.g=0,.b=0,.a=0};
@@ -423,17 +452,16 @@ bool updatePalette() {
         return false;
     }
 
-    if constexpr (sizeof(indexedColor) > 1) {
-        if (!SDL_SetPaletteColors(low_prio_palette, lowTransparent.data(), 0x100, PALETTE_SIZE * PALETTE_COUNT * 2)) {
-            SDL_Log("Couldn't set palette low transparent: %s", SDL_GetError());
-            return false;
-        };
 
-        if (!SDL_SetPaletteColors(high_prio_palette, highTransparent.data(), 0x100, PALETTE_SIZE * PALETTE_COUNT * 2)) {
-            SDL_Log("Couldn't set palette low transparent: %s", SDL_GetError());
-            return false;
-        };
-    }
+    if (!SDL_SetPaletteColors(low_grey_palette, low_grey.data(), 0, PALETTE_SIZE * PALETTE_COUNT * 2)) {
+        SDL_Log("Couldn't set palette low transparent: %s", SDL_GetError());
+        return false;
+    };
+
+    if (!SDL_SetPaletteColors(high_grey_palette, high_grey.data(), 0, PALETTE_SIZE * PALETTE_COUNT * 2)) {
+        SDL_Log("Couldn't set palette low transparent: %s", SDL_GetError());
+        return false;
+    };
 
     if (tiles_texture) {
         if (!SDL_SetTexturePalette(tiles_texture, high_prio_palette)) {
@@ -443,6 +471,12 @@ bool updatePalette() {
     }
     if (chunks_texture) {
         if (!SDL_SetTexturePalette(chunks_texture, high_prio_palette)) {
+            SDL_Log("Couldn't assign 2 palette: %s", SDL_GetError());
+            return false;
+        }
+    }
+    if (grey_chunks_texture) {
+        if (!SDL_SetTexturePalette(grey_chunks_texture, high_grey_palette)) {
             SDL_Log("Couldn't assign 2 palette: %s", SDL_GetError());
             return false;
         }
@@ -485,39 +519,51 @@ bool fullTileUpdate() {
 bool fullChunkUpdate() {
     indexedColor* SDLpixels;
     int pitch;
+
+    std::vector<bool> maskData(Chunk::WIDTH*16 *  Chunk::WIDTH * ChunkMap::COUNT/8);
+
+    const auto copyChunks = [&]() {
+        const indexedColor* start = SDLpixels;
+        auto setMaskBit = [&] (const indexedColor* pixel) {
+            const long index = pixel - start;
+            maskData[index] = true;
+        };
+
+        auto getChunkBytes = [&] (const int i) {
+            return gameData.chunks.getBytes(i,
+                gameData.blocks,
+                gameData.tileset); };
+
+        for (int i = 0; i < ChunkMap::COUNT/8; ++i) {
+            std::array<Chunk::pixelType, 16> chunks{};
+            for (int j = 0; j < 8; ++j) {
+                chunks[2*j] = getChunkBytes(j + i * 8);
+                chunks[2*j+1] = getChunkBytes(j + i * 8);
+            }
+
+            for (auto row : zip_array(chunks)) {
+                for (auto [rowCount, subrow] : row | stdv::enumerate) {
+                    for (const unsigned char k : subrow) {
+                        *SDLpixels++ = k + (rowCount % 2 ? 0x40 : 0);
+                    }
+                }
+            }
+        }
+    };
+
     if (!SDL_LockTexture(chunks_texture, nullptr, reinterpret_cast<void**>(&SDLpixels), &pitch)) {
         SDL_Log("Couldn't lock tile texture: %s", SDL_GetError());
         return false;
     };
-
-    std::vector<bool> maskData(Chunk::WIDTH*16 *  Chunk::WIDTH * ChunkMap::COUNT/8);
-    const indexedColor* start = SDLpixels;
-    auto setMaskBit = [&] (const indexedColor* pixel) {
-        const long index = pixel - start;
-        maskData[index] = true;
-    };
-
-    auto getChunkBytes = [&] (const int i) {
-        return gameData.chunks.getBytes(i,
-            gameData.blocks,
-            gameData.tileset); };
-
-    for (int i = 0; i < ChunkMap::COUNT/8; ++i) {
-        std::array<Chunk::pixelType, 16> chunks{};
-        for (int j = 0; j < 8; ++j) {
-            chunks[2*j] = getChunkBytes(j + i * 8);
-            chunks[2*j+1] = getChunkBytes(j + i * 8);
-        }
-
-        for (auto row : zip_array(chunks)) {
-            for (auto [rowCount, subrow] : row | stdv::enumerate) {
-                for (int k = 0; k < subrow.size(); ++k) {
-                    *SDLpixels++ = subrow[k] + (rowCount % 2 ? 0x40 : 0);
-                }
-            }
-        }
-    }
+    copyChunks();
     SDL_UnlockTexture(chunks_texture);
+
+    if (!SDL_LockTexture(grey_chunks_texture, nullptr, reinterpret_cast<void**>(&SDLpixels), &pitch)) {
+        SDL_Log("Couldn't lock tile texture: %s", SDL_GetError());
+        return false;
+    };
+    copyChunks();
+    SDL_UnlockTexture(grey_chunks_texture);
 
     if (!SDL_LockTexture(translucency_mask_texture, nullptr, reinterpret_cast<void**>(&SDLpixels), &pitch)) {
         SDL_Log("Couldn't lock transparency texture: %s", SDL_GetError());
@@ -635,51 +681,51 @@ bool partialTileUpdate() {
 
     SDL_UnlockTexture(tiles_texture);
 
+    auto copy_textures = [](indexedColor* SDLpixels, int pitch) {
+        pitch /= sizeof(indexedColor);
 
+        constexpr auto pixels_per_row = Chunk::WIDTH * 16;
+        constexpr auto pixels_per_chunk_row = pixels_per_row * Chunk::WIDTH;
+        assert(pitch == pixels_per_row);
+
+        auto chunkToId = [](const int c, const long x, const long y) {
+            const long chunk_row = c / 8;
+            const long chunk_col = (c % 8) * 2;
+            long base = chunk_row * pixels_per_chunk_row;
+            base += y * pixels_per_row;
+            base += chunk_col * Chunk::WIDTH;
+            base += x;
+            return base;
+        };
+
+        for (const int chunk_to_update : gameData.chunksToUpdate()) {
+
+            const auto pixels = gameData.chunks.getBytes(chunk_to_update, gameData.blocks, gameData.tileset);
+
+            for (int j = 0; j < Chunk::WIDTH; ++j) {
+                const auto& row = pixels[j];
+                for (int i = 0; i < Chunk::WIDTH; ++i) {
+                    const u8 p = row[i];
+                    const auto pixId = chunkToId(chunk_to_update, i, j);
+                    SDLpixels[pixId] = p;
+                    SDLpixels[pixId+Chunk::WIDTH] = p+0x40;
+                }
+            }
+        }
+    };
 
     if (!SDL_LockTexture(chunks_texture, nullptr, reinterpret_cast<void**>(&SDLpixels), &pitch)) {
         SDL_Log("Couldn't lock tile texture: %s", SDL_GetError());
         return false;
     };
-
-    pitch /= sizeof(indexedColor);
-
-    constexpr auto pixels_per_row = Chunk::WIDTH * 16;
-    constexpr auto pixels_per_chunk_row = pixels_per_row * Chunk::WIDTH;
-    assert(pitch == pixels_per_row);
-
-    auto chunkToId = [](const int c, const long x, const long y) {
-        const long chunk_row = c / 8;
-        const long chunk_col = (c % 8) * 2;
-        long base = chunk_row * pixels_per_chunk_row;
-        base += y * pixels_per_row;
-        base += chunk_col * Chunk::WIDTH;
-        base += x;
-        return base;
-    };
-
-    for (const int chunk_to_update : gameData.chunksToUpdate()) {
-        // SDL_Rect chunk_area {
-        //     .x = (chunk_to_update%8)*Chunk::WIDTH*2,
-        //     .y = (chunk_to_update/8)*Chunk::WIDTH,
-        //     .w = 2 * Chunk::WIDTH,
-        //     .h = Chunk::WIDTH
-        // };
-
-        const auto pixels = gameData.chunks.getBytes(chunk_to_update, gameData.blocks, gameData.tileset);
-
-        for (int j = 0; j < Chunk::WIDTH; ++j) {
-            const auto& row = pixels[j];
-            for (int i = 0; i < Chunk::WIDTH; ++i) {
-                const u8 p = row[i];
-                const auto pixId = chunkToId(chunk_to_update, i, j);
-                SDLpixels[pixId] = p;
-                SDLpixels[pixId+Chunk::WIDTH] = p+0x40;
-            }
-        }
-    }
-
+    copy_textures(SDLpixels, pitch);
     SDL_UnlockTexture(chunks_texture);
+    if (!SDL_LockTexture(grey_chunks_texture, nullptr, reinterpret_cast<void**>(&SDLpixels), &pitch)) {
+        SDL_Log("Couldn't lock tile texture: %s", SDL_GetError());
+        return false;
+    };
+    copy_textures(SDLpixels, pitch);
+    SDL_UnlockTexture(grey_chunks_texture);
     return true;
 }
 

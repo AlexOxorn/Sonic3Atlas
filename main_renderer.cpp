@@ -911,6 +911,7 @@ namespace Output {
     }
 
     SDL_AppResult INIT() {
+        gameData = RenderingData{};
         window = SDL_CreateWindow("Sonic 3 Atlas Rendering", WINDOW_WIDTH, WINDOW_HEIGHT, 0);
 
         if (window == nullptr) {

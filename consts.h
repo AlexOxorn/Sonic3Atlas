@@ -153,11 +153,14 @@ inline constexpr auto SCALE_MODE = SDL_SCALEMODE_LINEAR;
 
 extern SDL_Palette* low_prio_palette;
 extern SDL_Palette* high_prio_palette;
+extern SDL_Palette* low_grey_palette;
+extern SDL_Palette* high_grey_palette;
 extern SDL_Palette* full_palette;
 extern SDL_Palette* transparency_mask_palette;
 extern std::array<SDL_Texture*, 4> level_textures;
 extern SDL_Texture* tiles_texture;
 extern SDL_Texture* chunks_texture;
+extern SDL_Texture* grey_chunks_texture;
 extern SDL_Texture* mappings_texture;
 extern SDL_Texture* sprite_texture_high;
 extern SDL_Texture* sprite_texture_low;
