@@ -106,18 +106,13 @@ bool skipToNextLevel = false;
 
 int inputFD = -1;
 FILE* inputStream = nullptr;
+bool inputIsFile = false;
 RenderingData gameData;
 std::string frameError;
 
 std::pair<int, int> INTERNAL_RESOLUTION  = {16, 9};
-std::pair<int, int> OUTPUT_RESOLUTION;
-std::optional<std::string> FFMPEG_OUT = std::nullopt;
-std::optional<std::string> FFMPEG_AUDIO = std::nullopt;
-const char* FFMPEG_CODEC = "h264_nvenc";
-bool dynamicResolution = false;
-
-OOB x_loop = OOB::CLAMP;
-OOB y_loop = OOB::CLAMP;
+// std::pair<int, int> OUTPUT_RESOLUTION;
+// bool dynamicResolution = false;
 
 const std::array<SpriteMappingFrame, 6> hud_mappings = {
     SpriteMappingFrame::fromBytes(f1),

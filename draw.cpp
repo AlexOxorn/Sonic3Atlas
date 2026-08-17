@@ -13,6 +13,11 @@
 #include "consts.h"
 #include <SDL3/SDL.h>
 
+#define GET_LEFTMOST int leftmostChunk = static_cast<int>(std::floor(scrollX/Chunk::WIDTH))
+#define GET_TOPMOST int topmostChunk = static_cast<int>(std::floor(scrollY/Chunk::WIDTH))
+#define GET_RIGHTMOST int rightmostChunk = static_cast<int>(std::ceil((scrollX + RENDER_WIDTH)/Chunk::WIDTH)) + 2
+#define GET_BOTTOMMOST int bottommostChunk = static_cast<int>(std::ceil((scrollY + RENDER_HEIGHT)/Chunk::WIDTH)) + 2
+
 namespace DEBUG {
     bool chunkInfo = false;
     bool swapFGBG = false;
@@ -160,8 +165,8 @@ bool drawSprites(const bool prio) {
     SDL_SetTexturePalette(mappings_texture, palette);
 
 
-    const int leftmostChunk = static_cast<int>(scrollX / Chunk::WIDTH);
-    const int topmostChunk = static_cast<int>(scrollY / Chunk::WIDTH);
+    const GET_LEFTMOST;
+    const GET_TOPMOST;
     const int xOffset = leftmostChunk * Chunk::WIDTH;
     const int yOffset = topmostChunk * Chunk::WIDTH;
 
@@ -317,8 +322,8 @@ bool drawRings() {
         loopOffsets = {0};
     }
 
-    const s16 leftmostChunk = static_cast<s16>(scrollX / Chunk::WIDTH);
-    const s16 topmostChunk = static_cast<s16>(scrollY / Chunk::WIDTH);
+    const GET_LEFTMOST;
+    const GET_TOPMOST;
     const s16 xOffset = leftmostChunk * Chunk::WIDTH;
     const s16 yOffset = topmostChunk * Chunk::WIDTH;
 
@@ -552,10 +557,10 @@ static bool drawPlane2(
 
 static bool drawPlane(const std::vector<std::vector<u8>>& chunks, const float xOffset = 0, const float yOffset = 0) {
 
-    const int leftmostChunk = static_cast<int>(scrollX / Chunk::WIDTH);
-    const int topmostChunk = static_cast<int>(scrollY / Chunk::WIDTH);
-    const int rightmostChunk = std::ceil((scrollX + RENDER_WIDTH)/Chunk::WIDTH);
-    const int bottommostChunk = std::ceil((scrollY + RENDER_HEIGHT)/Chunk::WIDTH);
+    const GET_LEFTMOST;
+    const GET_TOPMOST;
+    const GET_RIGHTMOST;
+    const GET_BOTTOMMOST;
     const auto water_line_coord = static_cast<float>(gameData.water_line - (topmostChunk*Chunk::WIDTH));
     return drawPlane2(chunks, xOffset, yOffset, leftmostChunk, topmostChunk, rightmostChunk, bottommostChunk, water_line_coord);
 }
@@ -564,8 +569,8 @@ static bool drawPlane(const std::vector<std::vector<u8>>& chunks, const float xO
 static bool drawToBackgroundDefault(const bool prio) {
     const int offsetX = gameData.screen_position_A.first - gameData.screen_position_B.first;
     const int offsetY = gameData.screen_position_A.second - gameData.screen_position_B.second;
-    const int leftmostChunk = static_cast<int>(scrollX / Chunk::WIDTH);
-    const int topmostChunk = static_cast<int>(scrollY / Chunk::WIDTH);
+    const GET_LEFTMOST;
+    const GET_TOPMOST;
     const auto water_line_coord = static_cast<float>(gameData.water_line - (topmostChunk*Chunk::WIDTH));
     auto res = drawPlane2(
         DEBUG::swapFGBG ? gameData.level_chunks : gameData.background_chunks,
@@ -628,8 +633,8 @@ namespace AIZ2_SHIP {
             .h = Chunk::WIDTH
         };
 
-        const int leftmostChunk = static_cast<int>(scrollX / Chunk::WIDTH);
-        const int topmostChunk = static_cast<int>(scrollY / Chunk::WIDTH);
+        const GET_LEFTMOST;
+        const GET_TOPMOST;
 
         for (int j = 0; j < SHIP_CHUNK_HEIGHT; j++) {
             auto ship_y = static_cast<float>(propeller.y_pos + PROPELLER_OFFSET_Y);
@@ -656,8 +661,8 @@ namespace AIZ2_SHIP {
 static bool drawBGSubset(int lowX, int lowY, int highX, int highY) {
     const int offsetX = gameData.screen_position_A.first - gameData.screen_position_B.first;
     const int offsetY = gameData.screen_position_A.second - gameData.screen_position_B.second;
-    const int leftmostChunk = static_cast<int>(scrollX / Chunk::WIDTH);
-    const int topmostChunk = static_cast<int>(scrollY / Chunk::WIDTH);
+    const GET_LEFTMOST;
+    const GET_TOPMOST;
     const auto water_line_coord = static_cast<float>(gameData.water_line - (topmostChunk*Chunk::WIDTH));
     auto res = drawPlane2(
         gameData.background_chunks,
@@ -688,8 +693,8 @@ namespace CNZ1_BOSS {
     static bool drawBossBackground(const bool prio) {
         int offsetX = gameData.screen_position_A.first - gameData.screen_position_B.first;
         int offsetY = gameData.screen_position_A.second - gameData.screen_position_B.second;
-        const int leftmostChunk = static_cast<int>(scrollX / Chunk::WIDTH);
-        const int topmostChunk = static_cast<int>(scrollY / Chunk::WIDTH);
+        const GET_LEFTMOST;
+        const GET_TOPMOST;
         const auto water_line_coord = static_cast<float>(gameData.water_line - (topmostChunk*Chunk::WIDTH));
 
         if constexpr (loop) {
@@ -762,8 +767,8 @@ namespace SSZ1_EV {
             auto rightPiece = gameData.screen_max_x + GENESIS_RESOLUTION.first;
 
 
-            const int leftmostChunk = static_cast<int>(scrollX / Chunk::WIDTH);
-            const int topmostChunk = static_cast<int>(scrollY / Chunk::WIDTH);
+            const GET_LEFTMOST;
+            const GET_TOPMOST;
 
             constexpr int BlueSkyChunk = 2;
             auto BlueSkyColorIndex = gameData.chunks.getBytes(BlueSkyChunk, gameData.blocks, gameData.tileset)[0][0];

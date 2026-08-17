@@ -21,29 +21,16 @@
 constexpr inline auto HOST = "127.0.0.1";
 constexpr inline auto PORT = 5000;
 
-
-#define R_HD {1920, 1080}
-#define R_2K {2560, 1440}
-#define R_4K {3840, 2160}
-#define R_8K {3840*2, 2160*2}
-
-#define R_HEIGHT_TO_WIDTH(x) (16 * (x) / 9)
-#define R_MAX_HEIGHT 0x1000
-#define R_FROM_HEIGHT(x) {R_HEIGHT_TO_WIDTH(x), x}
-#define R_FULL R_FROM_HEIGHT(R_MAX_HEIGHT)
-
-constexpr std::pair<int, int> scale16(const std::pair<int, int> &in) {
-    return {in.first / 16 * 16 + 16, in.second / 16 * 16 + 16};
-}
-
 constexpr inline std::pair GENESIS_RESOLUTION(320, 224);
 constexpr inline std::pair WIDESCREEN_GEN = R_FROM_HEIGHT(GENESIS_RESOLUTION.second);
-extern bool dynamicResolution;
+
+#define dynamicResolution (config.internalResolution.index() == 1 && std::get<1>(config.internalResolution) == Options::SpecialResolution::FullHeight )
 extern std::pair<int, int> INTERNAL_RESOLUTION;
-extern std::pair<int, int> OUTPUT_RESOLUTION;
-extern std::optional<std::string> FFMPEG_OUT;
-extern std::optional<std::string> FFMPEG_AUDIO;
-extern const char* FFMPEG_CODEC;
+#define OUTPUT_RESOLUTION (config.outputResolution)
+#define FFMPEG_OUT (config.ffmpeg.active ? std::optional{stdfs::path{config.ffmpeg.directory} / stdfs::path{config.ffmpeg.filename}} : std::nullopt)
+#define FFMPEG_AUDIO (config.ffmpeg.withAudio ? std::optional{config.ffmpeg.audioInput} : std::nullopt)
+#define FFMPEG_CODEC (config.ffmpeg.video_encoder)
+#define FFMPEG_OPTIONS (config.ffmpeg.other_options)
 
 #define WINDOW_WIDTH OUTPUT_RESOLUTION.first
 #define WINDOW_HEIGHT OUTPUT_RESOLUTION.second
@@ -228,19 +215,14 @@ extern bool skipToNextLevel;
 
 extern int inputFD;
 extern FILE* inputStream;
+extern bool inputIsFile;
 extern RenderingData gameData;
 extern std::string frameError;
 
-enum class OOB {
-    CLAMP,
-    LOOP,
-    NONE,
-};
+#define x_loop (config.horizontal_oob)
+#define y_loop (config.vertical_oob)
 
-extern OOB x_loop;
-extern OOB y_loop;
-
-#define CLAMP_Y (y_loop == OOB::CLAMP && gameData.screen_min_y >= 0)
+#define CLAMP_Y (y_loop == Options::OOB::CLAMP && gameData.screen_min_y >= 0)
 
 #define PRESENTATION_MODE ( RENDER_WIDTH > WINDOW_WIDTH ? SDL_LOGICAL_PRESENTATION_OVERSCAN : SDL_LOGICAL_PRESENTATION_LETTERBOX )
 

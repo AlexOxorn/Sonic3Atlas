@@ -91,9 +91,6 @@ struct ChunkMap;
 struct RingMappingEntry;
 
 
-namespace stdr = std::ranges;
-namespace stdv = std::ranges::views;
-
 #if defined(__LITTLE_ENDIAN_BITFIELD)
 static_assert(false, "Little Endian Bitfield is not supported");
 #endif
