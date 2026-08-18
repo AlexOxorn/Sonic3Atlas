@@ -79,6 +79,9 @@ BG_EVENT_VAR = 0xEED2
 FG_EVENT_VARS = {
     0xEEB4, 0xEEB6, 0xEEB8, 0xEEBE, 0xEEC4, 0xEEC6,
 }
+UNKNOWN_EVENT_VARS = {
+    0xEE98, 0xEE9C, 0xEEA0, 0xEEA2
+}
 LBZ2_DeathEgg = 0xEF40
 Current_zone_and_act = 0xFE10
 GAME_MODE = 0xF600
@@ -275,6 +278,7 @@ function Connection:clean()
     if self.server then self.server:close() end
     self.client = nil
     self.server = nil
+    event.unregisterbyid(self.exp)
 end
 
 function Connection:send_ring_placement()
@@ -631,6 +635,10 @@ function Connection:send_events_data()
         self.client:send(int_to_bytes(memory.read_u16_be(FG_EVENT_VARS[i], "68K RAM"), 2))
     end
     self.client:send(int_to_bytes(memory.read_u16_be(LBZ2_DeathEgg, "68K RAM"), 2))
+    self.client:send('EVNTDAT3')
+    for i=1, #UNKNOWN_EVENT_VARS do
+        self.client:send(int_to_bytes(memory.read_u16_be(UNKNOWN_EVENT_VARS[i], "68K RAM"), 2))
+    end
 end
 
 function Connection:send_pause_state()

@@ -507,6 +507,9 @@ static s32 getNextFrame(FILE* fd) {
             recvStrict(fd, gameData.fgEventVars.begin(), 2 * 6);
             recvStrict(fd, &gameData.lbzDeathEggEvent, 2);
         }
+        else if (strncmp(msg, "EVNTDAT3", 8) == 0) {
+            recvStrict(fd, gameData.unknownEventVars.data(), 2 * 4);
+        }
         else if (strncmp(msg, "IS_PAUSE", 8) == 0) {
             recvStrict(fd, &gameData.gamePaused, 2);
             // flags |= GAME_PAUSED * static_cast<bool>(gameData.gamePaused);
@@ -854,6 +857,21 @@ static bool renderMessages(float delta_time) {
     auto hasMsg = [](const float* timer) { return *timer > 0.0f; };
 
     auto msgCount = stdr::count_if(messageData, hasMsg, &debugTimerMsgPair::first);
+
+
+    if (!FFMPEG_OUT) {
+        auto m1 = std::format("BG EVENT: {:08x}", gameData.getCurrentActBGEvent());
+        auto m2 = std::format("FG EVENT: {:08x}", gameData.getCurrentActFGEvent());
+
+        SDL_FRect eventMsgBox = {.x = .9f * WINDOW_WIDTH, .y = 8, .w = .18f * WINDOW_WIDTH, .h = 64};
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+        SDL_RenderFillRect(renderer, &eventMsgBox);
+        SDL_SetRenderDrawColor(renderer, 128, 128, 255, 255);
+        SDL_RenderDebugText(renderer, .91f * WINDOW_WIDTH, 10, m1.c_str());
+        SDL_SetRenderDrawColor(renderer, 255, 128, 128, 255);
+        SDL_RenderDebugText(renderer, .91f * WINDOW_WIDTH, 30, m2.c_str());
+    }
+
 
     if (msgCount == 0)
         return true;

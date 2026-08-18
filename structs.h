@@ -1082,6 +1082,7 @@ struct RenderingData {
     u16 fgEvent;
     std::array<u16, 9> bgEventVars;
     std::array<u16, 6> fgEventVars;
+    std::array<u16, 4> unknownEventVars;
     u16 lbzDeathEggEvent;
     u16 gamePaused;
     u16 lagFrames;

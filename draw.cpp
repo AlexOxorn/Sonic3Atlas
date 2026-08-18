@@ -23,6 +23,7 @@ namespace DEBUG {
     bool swapFGBG = false;
     bool forceFG = false;
     static u32 previousBGEvent = 0;
+    static u32 previousFGEvent = 0;
     static std::array<u16, 9> previousBGVars;
 } // namespace DEBUG
 
@@ -38,6 +39,8 @@ struct MaskPosition {
 };
 
 using SpriteFrameData = std::variant<FramePosition, MaskPosition, std::monostate>;
+
+static bool loopBGX = false;
 
 static void renderEntry(int index, SDL_FRect src, SDL_FRect dst) {
     dst.x += static_cast<float>(SPRITE_WIDTH * (index % SPRITE_PER_TMP_TEXTURE_ROW));
@@ -90,7 +93,8 @@ static bool drawFrame(const int index, const SpriteMappingFrame& frame, const Ba
                 const int modifiedRelativeWater = SPRITE_WIDTH - relativeWaterLine;
                 if (dest.y > static_cast<float>(modifiedRelativeWater)) {
                     renderEntry(index, src, dest);
-                } else {
+                }
+                else {
                     src.x += SpriteMappingEntry::WIDTH;
 
                     dest.h = std::min(static_cast<float>(modifiedRelativeWater) - dest.y, dest.h);
@@ -107,12 +111,14 @@ static bool drawFrame(const int index, const SpriteMappingFrame& frame, const Ba
                         renderEntry(index, src, dest);
                     }
                 }
-            } else {
+            }
+            else {
                 const auto init_h = dest.h;
                 if (dest.y > static_cast<float>(relativeWaterLine)) {
                     src.x += SpriteMappingEntry::WIDTH;
                     renderEntry(index, src, dest);
-                } else {
+                }
+                else {
                     dest.h = std::min(static_cast<float>(relativeWaterLine) - dest.y, dest.h);
                     src.h = dest.h;
                     renderEntry(index, src, dest);
@@ -135,7 +141,8 @@ static bool drawFrame(const int index, const SpriteMappingFrame& frame, const Ba
         //     positions.emplace_back(std::monostate{});
         // else
         positions.emplace_back(MaskPosition(y_pos + y_min, y_pos + y_max));
-    } else {
+    }
+    else {
         positions.emplace_back(FramePosition(x_pos, y_pos, flip));
     }
     return true;
@@ -228,7 +235,8 @@ bool drawSprites(const bool prio) {
     if (gameData.screen_min_y < 0) {
         loopOffsets.resize(2 * LOOP_COUNT + 1);
         stdr::iota(loopOffsets.begin(), loopOffsets.end(), -LOOP_COUNT);
-    } else {
+    }
+    else {
         loopOffsets = {0};
     }
 
@@ -266,7 +274,8 @@ bool drawSprites(const bool prio) {
 
                 SDL_RenderTextureRotated(renderer, sprite_tmp_texture, &src, &dest, 0, nullptr, flip);
             }
-        } else if (std::holds_alternative<MaskPosition>(data)) {
+        }
+        else if (std::holds_alternative<MaskPosition>(data)) {
             auto [y_low, y_high] = std::get<MaskPosition>(data);
             SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
             for (const int loopOff : loopOffsets) {
@@ -301,7 +310,8 @@ bool drawRings() {
     if (gameData.screen_min_y < 0) {
         loopOffsets.resize(LOOP_COUNT + 2);
         stdr::iota(loopOffsets.begin(), loopOffsets.end(), -1);
-    } else {
+    }
+    else {
         loopOffsets = {0};
     }
 
@@ -371,6 +381,9 @@ static bool drawPlane2(const std::vector<std::vector<u8>>& chunks, const float x
     SDL_FRect src{.x = 0, .y = 0, .w = Chunk::WIDTH, .h = Chunk::WIDTH};
     SDL_FRect dest{.x = 0, .y = 0, .w = Chunk::WIDTH, .h = Chunk::WIDTH};
     auto getChunkIndex = [&chunks](u16 rowIndex, u16 columnIndex) -> std::pair<bool, int> {
+        if (chunks.empty()) {
+            return std::make_pair(false, -1);
+        }
         if (gameData.screen_min_y < 0) {
             while (rowIndex < 0)
                 rowIndex += static_cast<int>(chunks.size());
@@ -385,9 +398,6 @@ static bool drawPlane2(const std::vector<std::vector<u8>>& chunks, const float x
                 if (config.horizontal_oob != Options::OOB::LOOP) {
                     return {false, -1};
                 }
-                if (chunks.empty()) {
-                    return {false, -1};
-                }
                 if (rowIndex >= chunks.size())
                     return {false, -1};
                 rowIndex += columnIndex / chunks[0].size();
@@ -398,7 +408,6 @@ static bool drawPlane2(const std::vector<std::vector<u8>>& chunks, const float x
     };
 
     SDL_Palette* activePalette = SDL_GetTexturePalette(chunks_texture);
-    SDL_Palette* greyPal = activePalette == low_prio_palette ? low_grey_palette : high_grey_palette;
 
 #define CHUNK_COLOR grey ? grey_chunks_texture : chunks_texture
 
@@ -443,20 +452,23 @@ static bool drawPlane2(const std::vector<std::vector<u8>>& chunks, const float x
                 dest.h = Chunk::WIDTH;
                 dest.y = static_cast<float>((rowIndex_base - topmostChunk) * Chunk::WIDTH) + yOffset;
                 src.h = Chunk::WIDTH;
-            } else if (land) {
+            }
+            else if (land) {
                 dest.x = static_cast<float>((columnIndex_base - leftmostChunk) * Chunk::WIDTH) + xOffset;
                 src.x = static_cast<float>(chunkIndex % 8 * Chunk::WIDTH * 2);
                 src.y = static_cast<float>(chunkIndex / 8 * Chunk::WIDTH);
                 SDL_RenderTexture(renderer, CHUNK_COLOR, &src, &dest);
                 SDL_RenderTexture(renderer, translucency_mask_texture, &src, &dest);
-            } else if (water) {
+            }
+            else if (water) {
                 dest.x = static_cast<float>((columnIndex_base - leftmostChunk) * Chunk::WIDTH) + xOffset;
                 src.x = static_cast<float>(chunkIndex % 8 * Chunk::WIDTH * 2 + Chunk::WIDTH);
                 src.y = static_cast<float>(chunkIndex / 8 * Chunk::WIDTH);
 
                 SDL_RenderTexture(renderer, CHUNK_COLOR, &src, &dest);
                 SDL_RenderTexture(renderer, translucency_mask_texture, &src, &dest);
-            } else {
+            }
+            else {
                 fprintf(stderr, "Error, neither water nor land\n");
                 fprintf(stderr, "Above: dest.y           < water_line_coord === %f < %f\n", dest.y, water_line_coord);
                 fprintf(stderr,
@@ -518,6 +530,7 @@ static bool drawToBackgroundDefault(const bool prio) {
     const GET_LEFTMOST;
     const GET_TOPMOST;
     const auto water_line_coord = static_cast<float>(gameData.water_line - (topmostChunk * Chunk::WIDTH));
+    loopBGX = true;
     auto res = drawPlane2(DEBUG::swapFGBG ? gameData.level_chunks : gameData.background_chunks,
                           offsetX - leftmostChunk * Chunk::WIDTH,
                           offsetY - topmostChunk * Chunk::WIDTH,
@@ -526,6 +539,7 @@ static bool drawToBackgroundDefault(const bool prio) {
                           gameData.background_chunks.empty() ? 0 : gameData.background_chunks[0].size(),
                           gameData.background_chunks.size(),
                           water_line_coord);
+    loopBGX = false;
 
     return res;
 }
@@ -613,7 +627,6 @@ namespace AIZ2 {
     }
 } // namespace AIZ2
 
-
 namespace HCZ2 {
     constexpr u8 WALL_EVENT = 0x1;
     constexpr int WALL_CHUNK_START_X = 4;
@@ -659,6 +672,44 @@ namespace CNZ1 {
 
 } // namespace CNZ1
 
+namespace MHZ2 {
+    constexpr u8 SHIP_INIT_EVENT = 0x3;
+    constexpr u8 SHIP_MAIN_EVENT = 0x4;
+    constexpr int SHIP_LOW_X = 126;
+    constexpr int SHIP_HIGH_X = 142;
+    constexpr int SHIP_Y = 1;
+
+    static bool drawShip() {
+        const s16 x = static_cast<s16>(gameData.unknownEventVars[0]);
+        const s16 y = static_cast<s16>(gameData.unknownEventVars[1]);
+        const GET_LEFTMOST;
+        const GET_TOPMOST;
+        const int offsetX = -x;
+        const int offsetY = -y;
+        auto res = drawPlane2(gameData.level_chunks,
+                              offsetX + gameData.screen_min_x + (SHIP_LOW_X - SHIP_HIGH_X - 1 - leftmostChunk) * Chunk::WIDTH,
+                              offsetY + gameData.screen_min_y - (topmostChunk - 1) * Chunk::WIDTH,
+                              SHIP_LOW_X,
+                              SHIP_Y,
+                              SHIP_HIGH_X,
+                              SHIP_Y,
+                              0);
+
+        return res;
+    }
+}
+
+namespace FBZ2 {
+    constexpr u8 BOSS_CLIMB = 0x4;
+    constexpr int BG_CHUNK_START_X = 8;
+    constexpr int BG_CHUNK_START_Y = 1;
+    constexpr int BG_CHUNK_END_X = 36;
+    constexpr int BG_CHUNK_END_Y = 11;
+    static bool drawChaseBG() {
+        return drawBGSubset(BG_CHUNK_START_X, BG_CHUNK_START_Y, BG_CHUNK_END_X, BG_CHUNK_END_Y);
+    }
+} // namespace FBZ2
+
 namespace SOZ1 {
     constexpr inline u8 BOSS_INIT = 0x1;
     constexpr inline u8 BOSS_LOOP = 0x2;
@@ -697,7 +748,8 @@ namespace SSZ1 {
             short cutoff;
             if (top_piece && start_colapse) {
                 cutoff = std::min(*top_piece, *start_colapse);
-            } else {
+            }
+            else {
                 cutoff = top_piece.value_or(*start_colapse);
             }
             auto bottom = gameData.screen_max_y + GENESIS_RESOLUTION.second;
@@ -739,19 +791,10 @@ namespace SSZ1 {
     }
 } // namespace SSZ1
 
-namespace FBZ2 {
-    constexpr u8 BOSS_CLIMB = 0x4;
-    constexpr int BG_CHUNK_START_X = 8;
-    constexpr int BG_CHUNK_START_Y = 1;
-    constexpr int BG_CHUNK_END_X = 36;
-    constexpr int BG_CHUNK_END_Y = 11;
-    static bool drawChaseBG() {
-        return drawBGSubset(BG_CHUNK_START_X, BG_CHUNK_START_Y, BG_CHUNK_END_X, BG_CHUNK_END_Y);
-    }
-} // namespace FBZ2
-
 static bool drawSelect(bool prio) {
-    switch (gameData.getCurrentActFGEvent()) {
+    const auto event = gameData.getCurrentActFGEvent();
+    DEBUG::previousFGEvent = event;
+    switch (event) {
         case LEVEL_ACT_EVENT(ANGLE_ISLAND_ZONE, 2, AIZ2::E_FLYING_BOMB_SHIP): {
             const bool x = drawToLevelDefault(prio);
             const bool y = prio ? AIZ2::drawShip() : true;
@@ -764,6 +807,14 @@ static bool drawSelect(bool prio) {
                 gameData.water_line = 0x680;
             return drawToLevelDefault(prio);
         }
+        case LEVEL_ACT_EVENT(MUSHROOM_HILL_ZONE, 2, MHZ2::SHIP_MAIN_EVENT): {
+            // loc_54F64
+            // Scene Manager Object? loc_5583E
+            drawToLevelDefault(prio);
+            MHZ2::drawShip();
+            return true;
+        }
+
         default: {
             return drawToLevelDefault(prio);
         }
@@ -771,10 +822,7 @@ static bool drawSelect(bool prio) {
 }
 
 static bool drawSelectBG(const bool prio) {
-    auto event = gameData.getCurrentActBGEvent();
-    if (event != DEBUG::previousBGEvent) {
-        printf("New BG Event %08x\n", event);
-    }
+    const auto event = gameData.getCurrentActBGEvent();
 
     DEBUG::previousBGEvent = event;
     switch (event) {
