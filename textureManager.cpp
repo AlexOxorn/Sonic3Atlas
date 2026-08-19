@@ -616,7 +616,7 @@ bool updateMappings() {
     };
 
     const int number_of_entries = static_cast<int>(SpriteMappingEntry::mappingPixels.size());
-    for (int e = 0; e < number_of_entries; ++e) {
+    for (int e = 0; e < std::min(number_of_entries, MAX_MAPPING_ENTRIES); ++e) {
         auto pixels = SpriteMappingEntry::mappingPixels[e];
 
         for (int j = 0; j < SpriteMappingEntry::WIDTH; ++j) {

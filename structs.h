@@ -210,6 +210,15 @@ struct Tile {
         stdr::copy(result, tile.pixels.begin());
         return tile;
     }
+
+    static Tile fromBytes(u8*& dataStream) {
+        std::array<tilerow, 0x8> result{};
+        Tile tile{};
+        memcpy(&result, dataStream, sizeof(result));
+        stdr::copy(result, tile.pixels.begin());
+        dataStream += sizeof(result);
+        return tile;
+    }
 };
 
 struct TileSet {
@@ -219,6 +228,11 @@ struct TileSet {
     static TileSet fromSocket(FILE* dataStream) {
         TileSet result{};
         stdr::generate(result.tiles, [=] { return Tile::fromSocket(dataStream); });
+        return result;
+    }
+    static TileSet fromBytes(u8* dataStream) {
+        TileSet result{};
+        stdr::generate(result.tiles, [&] { return Tile::fromBytes(dataStream); });
         return result;
     }
 };
@@ -1022,6 +1036,7 @@ public:
 };
 
 struct RenderingData {
+    inline static std::array<u8, 0x10000> currentVRAM;
     Palette palette;
     Palette water_palette;
     int water_line = 0;

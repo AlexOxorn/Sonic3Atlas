@@ -1,5 +1,15 @@
 require("socket.socket")
 
+-- Encodes the Entirety of VRAM every frame
+-- using the difference from the previous frame
+-- compressed using XOR Zero-Base Run Length Encoding.
+-- Slower to encode, but much more reliable updates
+--
+-- Otherwise, track vram updates by writes to the VDP status and data registers
+-- As well as calls to the DMA queue add.
+-- Then only read and send new data
+USE_RUN_LENGTH_ENCODING = true
+
 PLANE_A_X = 0xEE80
 PLANE_A_Y = 0xEE84
 PLANE_B_X = 0xEE8C
@@ -295,13 +305,13 @@ function Connection:send_ring_placement()
 
         local r_index = 1
         while true do
-            local x_pos = memory.read_u16_be(ring_location + r_index * 4)
+            local x_pos = memory.read_u16_be(ring_location + r_index * 4, 'M68K BUS')
             self.client:send(int_to_bytes(x_pos, 2))
             if x_pos == 0xFFFF then
                 break
             end
 
-            local y_pos = memory.read_u16_be(ring_location + r_index * 4 + 2)
+            local y_pos = memory.read_u16_be(ring_location + r_index * 4 + 2, 'M68K BUS')
             self.client:send(int_to_bytes(y_pos, 2))
             r_index = r_index + 1
         end
@@ -342,12 +352,50 @@ function Connection:send_palette_ram()
 end
 
 function Connection:send_full_vram()
-    str_data = readBytesToString(0x0000, 65536, 'VRAM')
+    data = memory.read_bytes_as_array(0x0000, 65536, 'VRAM')
+    self.previousVRAM = data
+    str_data = bytes_to_string(data)
     self.client:send('TILE_TST')
     print(string.format("Sending: %d tiles", #str_data))
     self.client:send(str_data)
     self.vram_updates = {}
     VRAM_ADDR_CHANGED = {}
+end
+
+function XorZeroRunLengthEncode(old, data)
+    out = {}
+    local i = 1
+    while i <= #data do
+        if data[i] ~= old[i] then
+            out[#out + 1] = data[i] ~ old[i]
+            i = i+1
+        else
+            out[#out+1] = 0
+            zeroCount = 0
+            i = i+1
+            while i <= #data and data[i] == old[i] and zeroCount < 0xFFFF do
+                zeroCount = zeroCount + 1
+                i = i + 1
+            end
+            out[#out+1] = zeroCount & 0xFF
+            out[#out+1] = zeroCount >> 8
+        end
+    end
+    return out
+end
+
+function Connection:send_full_vram_diff()
+    old = self.previousVRAM
+    if old == nil then
+        self.send_full_vram()
+        return nil
+    end
+    new = memory.read_bytes_as_array(0x0000, 65536, 'VRAM')
+    diff = XorZeroRunLengthEncode(old, new)
+    self.previousVRAM = new
+    self.client:send('VRAMDIFF')
+    self.client:send(int_to_bytes(#diff, 4))
+    self.client:send(bytes_to_string(diff))
 end
 
 function Connection:DMAQueueAddCallback()
@@ -474,46 +522,44 @@ function Connection:send_sprite_at(head)
     local render_data = memory.read_u8(head + 0x4, '68K RAM')
     local sonic_object_entry = readBytesToString(head, 0x4A, '68K RAM')
     local mapping_base = memory.read_u32_be(head + 0xC, '68K RAM')
-    
+
     if (render_data & 0x20) == 0 then
         -- Dynamic Mapping
         local anim_frame = memory.read_u8(head + 0x22, '68K RAM')
-        local mapping_offset = memory.read_s16_be(mapping_base + (anim_frame * 2))
-        local mapping_size = memory.read_s16_be(mapping_base + mapping_offset)
-        if mapping_size < 0 then
-
+        local mapping_offset = memory.read_s16_be(mapping_base + (anim_frame * 2), 'M68K BUS')
+        local mapping_size = memory.read_s16_be(mapping_base + mapping_offset, 'M68K BUS')
+        if mapping_size < 0 or mapping_size > 32 then
             print(string.format("Bad Mapping Data: %4x", head))
             print(string.format("mapping_base: %4x", mapping_base))
             print(string.format("anim_frame: %4x", anim_frame))
             print(string.format("mapping_offset_addr: %6x", mapping_base + (anim_frame * 2)))
             print(string.format("mapping_offset: %d", mapping_offset))
-            print(string.format("mapping_size: %4x", mapping_size))
+            print(string.format("mapping_size: %d", mapping_size))
             return
         end
 
-        local mapping_data = readBytesToString(mapping_base + mapping_offset + 2, 6 * mapping_size)
+        local mapping_data = readBytesToString(mapping_base + mapping_offset + 2, 6 * mapping_size, 'M68K BUS')
         if (#mapping_data ~= mapping_size * 6) then
             print("Bad Read %d != %d", #mapping_data, mapping_size * 6)
             return
-            end
+        end
+
         self.client:send('NEXT')
         self.client:send(sonic_object_entry)
         self.client:send(int_to_bytes(mapping_size, 2))
         self.client:send(mapping_data)
 
         if (render_data & 0x40) ~= 0 then
-            -- Compound Sprite
             local count_children = memory.read_u16_be(head + SPRITE_CHILD_COUNT_OFFSET, '68K RAM')
             self.client:send(int_to_bytes(count_children, 2))
             for i = 0, count_children-1 do
                 local mapping_frame = memory.read_u8(
                     head + SPRITE_CHILD_COUNT_OFFSET + 2 + (6 * i) + 5, '68K RAM'
                 )
-                -- print(string.format("mapping child %d frame %d", i, mapping_frame))
 
-                local mapping_offset = memory.read_s16_be(mapping_base + (mapping_frame * 2))
-                local mapping_size = memory.read_u16_be(mapping_base + mapping_offset)
-                local mapping_data = readBytesToString(mapping_base + mapping_offset + 2, 6 * mapping_size)
+                local mapping_offset = memory.read_s16_be(mapping_base + (mapping_frame * 2), 'M68K BUS')
+                local mapping_size = memory.read_u16_be(mapping_base + mapping_offset, 'M68K BUS')
+                local mapping_data = readBytesToString(mapping_base + mapping_offset + 2, 6 * mapping_size, 'M68K BUS')
 
                 self.client:send(int_to_bytes(mapping_size, 2))
                 self.client:send(mapping_data)
@@ -524,7 +570,7 @@ function Connection:send_sprite_at(head)
         print(string.format("Compound Static\n"))
     else
         -- Static Mapping
-        local mapping_data = readBytesToString(mapping_base, 6)
+        local mapping_data = readBytesToString(mapping_base, 6, 'M68K BUS')
         self.client:send('NEXT')
         self.client:send(sonic_object_entry)
         self.client:send(int_to_bytes(1, 2))
@@ -534,7 +580,6 @@ end
 
 function Connection:send_sprite_data()
     self.client:send('SPRITE_2')
-
     for i = 0, 7 do
         local prio_addr = SPRITE_TABLE + 0x80 * i
         local prio_size = memory.read_u16_be(prio_addr, '68K RAM')/2
@@ -660,14 +705,18 @@ function Connection:send_vram()
     timeFunction(false, 'send_ring_status', function() connection:send_ring_status() end)
 	previousGameMode = currentGameMode
 	currentGameMode = memory.read_u8(GAME_MODE, "68K RAM")
-    if ((currentGameMode & 0x80) ~= 0) or ((previousGameMode & 0x80) ~= 0) then
-        timeFunction(false, 'send_full_vram', function() connection:send_full_vram() end)
-    elseif (currentGameMode & 0x80) == 0 then
-        timeFunction(false, 'vram_updates', function() connection:send_vram_updates() end)
+
+    if USE_RUN_LENGTH_ENCODING then
+        timeFunction(false, 'vram_updates', function() connection:send_full_vram_diff() end)
     else
-        print(string.format('What?? %2x %2x', currentGameMode, previousGameMode))
+        if ((currentGameMode & 0x80) ~= 0) or ((previousGameMode & 0x80) ~= 0) then
+            timeFunction(false, 'send_full_vram', function() connection:send_full_vram() end)
+        elseif (currentGameMode & 0x80) == 0 then
+            timeFunction(false, 'vram_updates', function() connection:send_full_vram_diff() end)
+        else
+            print(string.format('What?? %2x %2x', currentGameMode, previousGameMode))
+        end
     end
-    --timeFunction(false, 'tileset', function() connection:send_tileset() end)
     timeFunction(false, 'send_screen_position', function() connection:send_screen_position() end)
     timeFunction(false, 'scroll_offsets', function() connection:scroll_offsets() end)
     timeFunction(false, 'waterline', function() connection:waterline() end)
@@ -745,60 +794,62 @@ while true do
     end
 
     -- PARSE FORM OPTIONS
-
     Options.outputType = forms.gettext(OUT_TYPE)
     Options.filename = forms.gettext(OUT_FILENAME)
     Options.fullOutPath = string.format("%s/%s", Options.directory, Options.filename)
     Options.withMovie = false
-
     if movie.isloaded() then
         Options.withMovie = true
-        movie.play_from_start()
+--         movie.play_from_start()
     end
 
+
     connection = Connection:new(Options.outputType == "file", Options.fullOutPath)
+    print(Options.fullOutPath)
 
-    VDP_STATUS_WRITES = event.on_bus_write (function (addr, val, flags)
-        -- Auto Inc Register
-        if (val >= 0x8F00 and val < 0x9000) then
-            VDP_mock.AUTO_INC = val & (0xFF)
-        end
 
-        if (val >= 0x8700 and val < 0x8800) then
-            BACKGROUND_COLOR = val & 0xFF
-        end
+    if not USE_RUN_LENGTH_ENCODING then
+        VDP_STATUS_WRITES = event.on_bus_write (function (addr, val, flags)
+            -- Auto Inc Register
+            if (val >= 0x8F00 and val < 0x9000) then
+                VDP_mock.AUTO_INC = val & (0xFF)
+            end
 
-        -- CD0 = 1
-        if (val < 0x40000000) then return dontCare() end
+            if (val >= 0x8700 and val < 0x8800) then
+                BACKGROUND_COLOR = val & 0xFF
+            end
 
-        -- VRAM = CD1-3 : 000
-        if ((val & B_CD1) ~= 0) then return dontCare() end
-        if ((val & B_CD2) ~= 0) then return dontCare() end
-        if ((val & B_CD3) ~= 0) then return dontCare() end
+            -- CD0 = 1
+            if (val < 0x40000000) then return dontCare() end
 
-        -- DMA = CD5
-        if ((val & B_CD5) ~= 0) then return dontCare() end
+            -- VRAM = CD1-3 : 000
+            if ((val & B_CD1) ~= 0) then return dontCare() end
+            if ((val & B_CD2) ~= 0) then return dontCare() end
+            if ((val & B_CD3) ~= 0) then return dontCare() end
 
-        -- VRAM TO VRAM copy = CD4
-        if ((val & B_CD4) ~= 0) then return dontCare() end
+            -- DMA = CD5
+            if ((val & B_CD5) ~= 0) then return dontCare() end
 
-        local address_low = (val & B_ADDR_L) >> S_ADDR_L;
-        local address_high = (val & B_ADDR_H) << S_ADDR_H;
+            -- VRAM TO VRAM copy = CD4
+            if ((val & B_CD4) ~= 0) then return dontCare() end
 
-        VDP_mock.CARE = true
-        VDP_mock.ADDRESS = address_high + address_low
-        VDP_mock.WRITE = true
-        VDP_mock.RAM = R_VRAM
-        VDP_mock.VtoV = false
-        VDP_mock.DMA = false
-    end, VDP_control_port)
+            local address_low = (val & B_ADDR_L) >> S_ADDR_L;
+            local address_high = (val & B_ADDR_H) << S_ADDR_H;
 
-    VDP_DATA_WRITES = event.on_bus_write (function (addr, val, flags)
-        if (not VDP_mock.CARE) then return end
-        MarkVRAM()
-        VDP_mock.ADDRESS = VDP_mock.ADDRESS + VDP_mock.AUTO_INC
-    end, VDP_data_port);
+            VDP_mock.CARE = true
+            VDP_mock.ADDRESS = address_high + address_low
+            VDP_mock.WRITE = true
+            VDP_mock.RAM = R_VRAM
+            VDP_mock.VtoV = false
+            VDP_mock.DMA = false
+        end, VDP_control_port)
 
+        VDP_DATA_WRITES = event.on_bus_write (function (addr, val, flags)
+            if (not VDP_mock.CARE) then return end
+            MarkVRAM()
+            VDP_mock.ADDRESS = VDP_mock.ADDRESS + VDP_mock.AUTO_INC
+        end, VDP_data_port);
+    end
 
     FRAME_LOOP = 0
     render_sprite = false
@@ -822,7 +873,6 @@ while true do
     connection:ring_mappings()
     connection:send_full_vram()
     connection:send_vram()
-
     local c1 = event.on_bus_exec(function(addr, val, flags)
         if render_sprite then
             timeFunction(false, 'sprites', function() connection:send_sprite_data() end)
@@ -830,20 +880,24 @@ while true do
             render_vram = true
         end
     end, 0x1AD20)
+
     local c2 = event.on_bus_exec(function(addr, val, flags)
         if render_vram then
             connection:send_vram()
             render_vram = false
         end
     end, 0x15B8)
-    local c3 = event.on_bus_exec(function (addr, val, flags)
-        connection:DMAQueueAddCallback()
-    end, DMA_QUEUE_ADD_EXEC_ADDR)
+    if not USE_RUN_LENGTH_ENCODING then
+        local c3 = event.on_bus_exec(function (addr, val, flags)
+            connection:DMAQueueAddCallback()
+        end, DMA_QUEUE_ADD_EXEC_ADDR)
+    end
 
     while not STOP do
         timeFunction(false, 'Total Frame', function()
             emu.frameadvance();
             connection.client:send('V_BLANK_');
+--             STOP = true
         end)
         render_sprite = true
         if Options.withMovie and movie.mode() == "FINISHED" then break end
@@ -853,9 +907,11 @@ while true do
 
     event.unregisterbyid(c1)
     event.unregisterbyid(c2)
-    event.unregisterbyid(c3)
-    event.unregisterbyid(VDP_STATUS_WRITES)
-    event.unregisterbyid(VDP_DATA_WRITES)
+    if not USE_RUN_LENGTH_ENCODING then
+        event.unregisterbyid(c3)
+        event.unregisterbyid(VDP_STATUS_WRITES)
+        event.unregisterbyid(VDP_DATA_WRITES)
+    end
 
     connection:clean()
 end

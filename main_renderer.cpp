@@ -371,9 +371,37 @@ static s32 getNextFrame(FILE* fd) {
             flags |= COLOR_UPDATED;
         }
         else if (strncmp(msg, "TILE_TST", 8) == 0) {
-            gameData.tileset = TileSet::fromSocket(fd);
+            recvStrict(fd, RenderingData::currentVRAM.data(), 0x10000);
+            gameData.tileset = TileSet::fromBytes(RenderingData::currentVRAM.data());
             gameData.newly_updated_tiles.clear();
             flags |= FULL_TILE_UPDATED;
+        }
+        else if (strncmp(msg, "VRAMDIFF", 8) == 0) {
+            int msgLen;
+            recvStrict(fd, &msgLen, 4);
+            std::vector<u8> encoding;
+            encoding.resize(msgLen);
+            recvStrict(fd, encoding.data(), msgLen);
+
+            const auto start = RenderingData::currentVRAM.begin();
+            const auto end = RenderingData::currentVRAM.end();
+            const auto srcEnd = encoding.end();
+            auto dest = RenderingData::currentVRAM.begin();
+            auto src = encoding.begin();
+
+            while (dest < end && src < srcEnd) {
+                if (*src != 0) {
+                    *dest ^= *src++;
+                    gameData.newly_updated_tiles.insert((dest++ - start)/0x20);
+                } else {
+                    u16 cnt = src[1];
+                    cnt += (src[2] << 8);
+                    dest += cnt + 1;
+                    src += 3;
+                }
+            }
+            gameData.tileset = TileSet::fromBytes(RenderingData::currentVRAM.data());
+            flags |= PARTIAL_TILE_UPDATED;
         }
         else if (strncmp(msg, "TILE_LST", 8) == 0) {
             s16 index;
