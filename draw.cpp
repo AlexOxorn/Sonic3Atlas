@@ -524,14 +524,14 @@ static bool drawPlane(const std::vector<std::vector<u8>>& chunks, const float xO
 }
 
 
-static bool drawToBackgroundDefault(const bool prio) {
+static bool drawToBackgroundDefault(const bool prio, const bool swap_plane=false) {
     const int offsetX = gameData.screen_position_A.first - gameData.screen_position_B.first;
     const int offsetY = gameData.screen_position_A.second - gameData.screen_position_B.second;
     const GET_LEFTMOST;
     const GET_TOPMOST;
     const auto water_line_coord = static_cast<float>(gameData.water_line - (topmostChunk * Chunk::WIDTH));
     loopBGX = true;
-    auto res = drawPlane2(DEBUG::swapFGBG ? gameData.level_chunks : gameData.background_chunks,
+    auto res = drawPlane2((DEBUG::swapFGBG ^ swap_plane) ? gameData.level_chunks : gameData.background_chunks,
                           offsetX - leftmostChunk * Chunk::WIDTH,
                           offsetY - topmostChunk * Chunk::WIDTH,
                           0,
@@ -544,8 +544,8 @@ static bool drawToBackgroundDefault(const bool prio) {
     return res;
 }
 
-static bool drawToLevelDefault(const bool prio) {
-    auto res = drawPlane(DEBUG::swapFGBG ? gameData.background_chunks : gameData.level_chunks);
+static bool drawToLevelDefault(const bool prio, bool swap_plane=false) {
+    auto res = drawPlane((DEBUG::swapFGBG ^ swap_plane) ? gameData.background_chunks : gameData.level_chunks);
     return res;
 }
 
@@ -791,6 +791,10 @@ namespace SSZ1 {
     }
 } // namespace SSZ1
 
+namespace DEZ2 {
+
+}
+
 static bool drawSelect(bool prio) {
     const auto event = gameData.getCurrentActFGEvent();
     DEBUG::previousFGEvent = event;
@@ -812,6 +816,14 @@ static bool drawSelect(bool prio) {
             // Scene Manager Object? loc_5583E
             drawToLevelDefault(prio);
             MHZ2::drawShip();
+            return true;
+        }
+        case LEVEL_ACT_EVENT(DEATH_EGG_ZONE, 3, 1): {
+            // std::println("FG Ev Vars: {::04x}", gameData.fgEventVars);
+            // std::println("BG Ev Vars: {::04x}", gameData.bgEventVars);
+            // std::println("?? Ev Vars: {::04x}\n", gameData.unknownEventVars);
+
+            drawToLevelDefault(prio, true);
             return true;
         }
 
@@ -875,6 +887,14 @@ static bool drawSelectBG(const bool prio) {
         case LEVEL_ACT_EVENT(SKY_SANCTUARY_ZONE, 1, 2):
         case LEVEL_ACT_EVENT(SKY_SANCTUARY_ZONE, 1, 3): {
             SSZ1::start_colapse = std::nullopt;
+        }
+
+        case LEVEL_ACT_EVENT(DEATH_EGG_ZONE, 3, 0) ...
+             LEVEL_ACT_EVENT(DEATH_EGG_ZONE, 3, 4): {
+            
+            // BGV[1] = x position
+            // BGV[2] = y position
+            return drawToBackgroundDefault(prio, true);
         }
 
         default: {

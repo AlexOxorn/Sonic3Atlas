@@ -76,7 +76,9 @@ constexpr inline s32 RING_STATS_UPDATED = 1 << 12;
 constexpr inline s32 RING_MAP_UPDATED = 1 << 13;
 constexpr inline s32 LAG_FRAME = 1 << 14;
 constexpr inline s32 GAME_PAUSED = 1 << 15;
-constexpr inline s32 FRAME_EOF = 1 << 15;
+constexpr inline s32 FRAME_EOF = 1 << 16;
+constexpr inline s32 PARTIAL_BLOCK_UPDATED = 1 << 17;
+constexpr inline s32 PARTIAL_CHUNK_UPDATED = 1 << 18;
 
 constexpr inline u8 ANGLE_ISLAND_ZONE = 0;
 constexpr inline u8 HYDRO_CITY_ZONE = 1;

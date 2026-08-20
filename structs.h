@@ -10,24 +10,22 @@
 //
 
 
-#include "common.h"
 #include <algorithm>
 #include <array>
-#include <cassert>
-#include <bitset>
 #include <bit>
+#include <bitset>
+#include <cassert>
 #include <cstring>
-#include <ranges>
-#include <unistd.h>
-#include <type_traits>
-#include <sys/socket.h>
-#include <utility>
 #include <map>
 #include <ranges>
 #include <set>
-#include <vector>
+#include <sys/socket.h>
+#include <type_traits>
 #include <unistd.h>
 #include <unordered_set>
+#include <utility>
+#include <vector>
+#include "common.h"
 
 
 /*
@@ -95,23 +93,24 @@ struct RingMappingEntry;
 static_assert(false, "Little Endian Bitfield is not supported");
 #endif
 
-template <typename... Args>
-auto tuple_to_array(const std::tuple<Args...>& t) {
-    return std::apply([](auto... elems) {
-        using CommonType = std::common_type_t<Args...>;
+template<typename... Args> auto tuple_to_array(const std::tuple<Args...>& t) {
+    return std::apply(
+            [](auto... elems) {
+                using CommonType = std::common_type_t<Args...>;
 
-        return std::array<CommonType, sizeof...(Args)>{ static_cast<CommonType>(elems)... };
-    }, t);
+                return std::array<CommonType, sizeof...(Args)>{static_cast<CommonType>(elems)...};
+            },
+            t);
 }
 
-template <typename T>
-auto zip_array(T& arr) {
-    return std::apply([](auto&... args) {return stdr::zip_view(args...);}, arr) | stdv::transform([](const auto& x) { return tuple_to_array(x); });
+template<typename T> auto zip_array(T& arr) {
+    return std::apply([](auto&... args) { return stdr::zip_view(args...); }, arr) |
+            stdv::transform([](const auto& x) { return tuple_to_array(x); });
 }
 
-inline size_t recvStrict(FILE* dataStream, void *buf, const int len) {
+inline size_t recvStrict(FILE* dataStream, void* buf, const int len) {
     size_t received = 0;
-    const auto  _buf = static_cast<char*>(buf);
+    const auto _buf = static_cast<char*>(buf);
     while (received < len) {
         const auto count = fread(_buf + received, 1, len - received, dataStream);
         if (count == 0) {
@@ -122,7 +121,7 @@ inline size_t recvStrict(FILE* dataStream, void *buf, const int len) {
     return received;
 }
 
-constexpr std::array<u8, 8> colormap {0, 52, 87, 116, 144, 172, 206, 255};
+constexpr std::array<u8, 8> colormap{0, 52, 87, 116, 144, 172, 206, 255};
 
 constexpr u8 color_3bit_to_8bit(const u8 color3) {
     // return (color3 << 5) | (color3 << 2) | (color3 >> 1);
@@ -130,9 +129,9 @@ constexpr u8 color_3bit_to_8bit(const u8 color3) {
 }
 
 struct Color3Bit {
-    u8 red: 3;
-    u8 green: 3;
-    u8 blue: 3;
+    u8 red : 3;
+    u8 green : 3;
+    u8 blue : 3;
 
     static Color3Bit fromSocket(FILE* dataStream) {
         Color3Bit result{};
@@ -140,9 +139,9 @@ struct Color3Bit {
         u8 data[2];
         recvStrict(dataStream, reinterpret_cast<char*>(&data), sizeof(result));
 
-        result.red = (data[1]>>1) & 0xFFF;
-        result.green = (data[1]>>5) & 0xFFF;
-        result.blue = (data[0]>>1) & 0xFFF;
+        result.red = (data[1] >> 1) & 0xFFF;
+        result.green = (data[1] >> 5) & 0xFFF;
+        result.blue = (data[0] >> 1) & 0xFFF;
 
         return result;
     }
@@ -155,11 +154,7 @@ struct Color8Bit {
 
     static Color8Bit fromSocket(FILE* dataStream) {
         const auto [red, green, blue] = Color3Bit::fromSocket(dataStream);
-        return Color8Bit(
-            color_3bit_to_8bit(red),
-            color_3bit_to_8bit(green),
-            color_3bit_to_8bit(blue)
-        );
+        return Color8Bit(color_3bit_to_8bit(red), color_3bit_to_8bit(green), color_3bit_to_8bit(blue));
     }
 };
 
@@ -189,14 +184,14 @@ struct Tile {
         u8 data[4];
         operator std::array<u8, 8>() const {
             return {
-                static_cast<u8>(data[0] >> 4),
-                static_cast<u8>(data[0] & 0xF),
-                static_cast<u8>(data[1] >> 4),
-                static_cast<u8>(data[1] & 0xF),
-                static_cast<u8>(data[2] >> 4),
-                static_cast<u8>(data[2] & 0xF),
-                static_cast<u8>(data[3] >> 4),
-                static_cast<u8>(data[3] & 0xF),
+                    static_cast<u8>(data[0] >> 4),
+                    static_cast<u8>(data[0] & 0xF),
+                    static_cast<u8>(data[1] >> 4),
+                    static_cast<u8>(data[1] & 0xF),
+                    static_cast<u8>(data[2] >> 4),
+                    static_cast<u8>(data[2] & 0xF),
+                    static_cast<u8>(data[3] >> 4),
+                    static_cast<u8>(data[3] & 0xF),
             };
         }
     };
@@ -239,7 +234,7 @@ struct TileSet {
 
 
 struct BatCell {
-    u16 vram_index:11;
+    u16 vram_index : 11;
     bool flip_x : 1;
     bool flip_y : 1;
     u8 palette : 2;
@@ -252,14 +247,16 @@ struct BatCell {
 
     static inline Map batCache;
 
-    static BatCell fromBytes(const u8* data) {
-        return {
-            .vram_index = static_cast<u16> (data[1] + (data[0]&0b111) * (1 << 8)),
-            .flip_x = static_cast<bool> (data[0]&0b1000),
-            .flip_y = static_cast<bool> (data[0]&0b10000),
-            .palette = static_cast<u8> ((data[0] >> 5)&0b11),
-            .priority = static_cast<bool> (data[0] & 0b10000000),
+    static BatCell fromBytes(const u8*& data) {
+        const BatCell res {
+            .vram_index = static_cast<u16>(data[1] + (data[0] & 0b111) * (1 << 8)),
+            .flip_x = static_cast<bool>(data[0] & 0b1000),
+            .flip_y = static_cast<bool>(data[0] & 0b10000),
+            .palette = static_cast<u8>((data[0] >> 5) & 0b11),
+            .priority = static_cast<bool>(data[0] & 0b10000000),
         };
+        data += sizeof(BatCell);
+        return res;
     }
 
     BatCell operator+(const BatCell& other) const {
@@ -293,51 +290,53 @@ struct BatCell {
         u16 new_prio = l_prio + r_prio + carry;
         new_prio &= 1;
 
-        return BatCell{
-            .vram_index = new_tile,
-            .flip_x = !!new_x,
-            .flip_y = !!new_y,
-            .palette = static_cast<u8>(new_palette),
-            .priority = !!new_prio
-        };
+        return BatCell{.vram_index = new_tile,
+                       .flip_x = !!new_x,
+                       .flip_y = !!new_y,
+                       .palette = static_cast<u8>(new_palette),
+                       .priority = !!new_prio};
     }
 
     static BatCell fromSocket(FILE* dataStream) {
         u8 data[sizeof(BatCell)];
-        recvStrict(dataStream, reinterpret_cast<char*>(data), sizeof(data));
-        return BatCell::fromBytes(data);
+        recvStrict(dataStream, data, sizeof(data));
+        const auto* p = data;
+        return fromBytes(p);
     }
 
 private:
     void for_rows(const stdr::range auto& rows, pixelType& output, const auto& map) const {
-        for (auto [row, outRow]: stdr::zip_view(rows, output)) {
+        for (auto [row, outRow] : stdr::zip_view(rows, output)) {
             if (flip_x) {
                 stdr::transform(stdr::reverse_view(row), outRow.begin(), map);
-            } else {
+            }
+            else {
                 stdr::transform(row, outRow.begin(), map);
             }
         }
     };
     [[nodiscard]] pixelType build_bytes(const TileSet& tile_set) const {
-        auto map_palette = [this] (const u8 pixel) -> u8 {
+        auto map_palette = [this](const u8 pixel) -> u8 {
             if (pixel == 0)
                 return 0;
             int color = pixel + 0x10 * palette;
             if (priority)
-                color |= 1<<7;
+                color |= 1 << 7;
             return color;
         };
         auto [pixels] = tile_set.tiles[vram_index];
-        std::array<std::array<u8, 8>, 8>  result{};
+        std::array<std::array<u8, 8>, 8> result{};
 
 
         if (flip_y) {
             for_rows(stdr::reverse_view(pixels), result, map_palette);
-        } else {
+        }
+        else {
             for_rows(pixels, result, map_palette);
         }
         return result;
     }
+
 public:
     [[nodiscard]] pixelType getBytes(const TileSet& tile_set) const {
         if (const auto bb = batCache.find(*this); bb != std::end(batCache)) {
@@ -352,9 +351,18 @@ struct Block {
     std::array<std::array<BatCell, 0x2>, 0x2> cells;
     static Block fromSocket(FILE* dataStream) {
         Block result{};
-        for (auto &row: result.cells) {
-            for (auto &cell: row) {
+        for (auto& row : result.cells) {
+            for (auto& cell : row) {
                 cell = BatCell::fromSocket(dataStream);
+            }
+        }
+        return result;
+    }
+    static Block fromBytes(const u8*& dataStream) {
+        Block result{};
+        for (auto& row : result.cells) {
+            for (auto& cell : row) {
+                cell = BatCell::fromBytes(dataStream);
             }
         }
         return result;
@@ -365,25 +373,24 @@ struct Block {
 
 private:
     [[nodiscard]] std::array<std::array<u8, 16>, 16> build_bytes(const TileSet& tile_set) const {
-        std::array<std::array<u8, 16>, 16>  result{};
+        std::array<std::array<u8, 16>, 16> result{};
 
-        std::array tiles {rowType{
-                cells[0][0].getBytes(tile_set),
-                cells[0][1].getBytes(tile_set),
-            }, rowType{
-                cells[1][0].getBytes(tile_set),
-                cells[1][1].getBytes(tile_set),
-            }
-        };
+        std::array tiles{rowType{
+                                 cells[0][0].getBytes(tile_set),
+                                 cells[0][1].getBytes(tile_set),
+                         },
+                         rowType{
+                                 cells[1][0].getBytes(tile_set),
+                                 cells[1][1].getBytes(tile_set),
+                         }};
 
-        auto row_view = std::apply([](auto... args) {return stdr::zip_view(args...);}, tiles);
+        auto row_view = std::apply([](auto... args) { return stdr::zip_view(args...); }, tiles);
         auto out = result[0].data();
 
         for (auto [lcell, rcell] : tiles) {
-            for (auto [lrow, rrow] :
-                stdr::zip_view(lcell, rcell)) {
+            for (auto [lrow, rrow] : stdr::zip_view(lcell, rcell)) {
                 stdr::copy(lrow, out);
-                stdr::copy(rrow, out+8);
+                stdr::copy(rrow, out + 8);
                 out += 16;
             }
         }
@@ -394,8 +401,8 @@ private:
 };
 
 struct BlockMap {
-    static constexpr auto SIZE =0xA800 - 0x9000;
-    static constexpr auto COUNT = SIZE/sizeof(Block);
+    static constexpr auto SIZE = 0xA800 - 0x9000;
+    static constexpr auto COUNT = SIZE / sizeof(Block);
     std::array<Block, COUNT> blocks;
     static inline std::array<Block::pixelType, COUNT> block_pixels;
     static inline std::bitset<COUNT> computed_pixels;
@@ -403,6 +410,12 @@ struct BlockMap {
     static BlockMap fromSocket(FILE* dataStream) {
         BlockMap result{};
         stdr::generate(result.blocks, [=] { return Block::fromSocket(dataStream); });
+        return result;
+    }
+
+    static BlockMap fromBytes(const u8* dataStream) {
+        BlockMap result{};
+        stdr::generate(result.blocks, [&] { return Block::fromBytes(dataStream); });
         return result;
     }
 
@@ -420,7 +433,7 @@ struct BlockMap {
 };
 
 struct ChunkTile {
-    u16 vram_index:10;
+    u16 vram_index : 10;
     bool flip_x : 1;
     bool flip_y : 1;
     u8 std_solidity : 2;
@@ -443,15 +456,28 @@ struct ChunkTile {
             .flip_y = static_cast<bool>(data[0] & 0b1000),
             .std_solidity = static_cast<bool>((data[0] >> 4) & 0b11),
             .alt_solidity = static_cast<bool>(data[0] >> 6),
+    };
+    }
+
+    static ChunkTile fromBytes(const u8*& data) {
+        const ChunkTile result {
+            .vram_index = static_cast<u16>(data[1] + (data[0] & 0b11) * (1 << 8)),
+            .flip_x = static_cast<bool>(data[0] & 0b100),
+            .flip_y = static_cast<bool>(data[0] & 0b1000),
+            .std_solidity = static_cast<bool>((data[0] >> 4) & 0b11),
+            .alt_solidity = static_cast<bool>(data[0] >> 6),
         };
+        data += sizeof(ChunkTile);
+        return result;
     }
 
 private:
     void for_rows(const stdr::range auto& rows, pixelType& output) const {
-        for (auto [row, outRow]: stdr::zip_view(rows, output)) {
+        for (auto [row, outRow] : stdr::zip_view(rows, output)) {
             if (flip_x) {
                 stdr::copy(stdr::reverse_view(row), outRow.begin());
-            } else {
+            }
+            else {
                 stdr::copy(row, outRow.begin());
             }
         }
@@ -462,11 +488,13 @@ private:
 
         if (flip_y) {
             for_rows(stdr::reverse_view(block_pixels), result);
-        } else {
+        }
+        else {
             for_rows(block_pixels, result);
         }
         return result;
     }
+
 public:
     [[nodiscard]] pixelType getBytes(const BlockMap& blocks, const TileSet& tile_set) const {
         if (const auto bb = catCache.find(*this); bb != std::end(catCache)) {
@@ -485,9 +513,19 @@ struct Chunk {
 
     static Chunk fromSocket(FILE* dataStream) {
         Chunk result{};
-        for (auto &row: result.parts) {
-            for (auto &cell: row) {
+        for (auto& row : result.parts) {
+            for (auto& cell : row) {
                 cell = ChunkTile::fromSocket(dataStream);
+            }
+        }
+        return result;
+    }
+
+    static Chunk fromBytes(const u8*& dataStream) {
+        Chunk result{};
+        for (auto& row : result.parts) {
+            for (auto& cell : row) {
+                cell = ChunkTile::fromBytes(dataStream);
             }
         }
         return result;
@@ -495,19 +533,18 @@ struct Chunk {
 
 private:
     [[nodiscard]] pixelType build_bytes(const BlockMap& blocks, const TileSet& tile_set) const {
-        pixelType  result{};
+        pixelType result{};
 
         std::array<rowType, 0x8> blockBytes{};
 
-        for (auto [byteRow, blockRow]:
-            stdr::zip_view(blockBytes, parts)) {
-            stdr::transform(blockRow, byteRow.begin(),
-                [&](const ChunkTile& cat) { return cat.getBytes(blocks, tile_set); });
+        for (auto [byteRow, blockRow] : stdr::zip_view(blockBytes, parts)) {
+            stdr::transform(
+                    blockRow, byteRow.begin(), [&](const ChunkTile& cat) { return cat.getBytes(blocks, tile_set); });
         }
 
         auto out = result[0].data();
 
-        for (const auto chunkRow: blockBytes) {
+        for (const auto chunkRow : blockBytes) {
             for (auto rows : zip_array(chunkRow)) {
                 for (auto [i, row] : rows | stdv::enumerate) {
                     stdr::copy(row, out + 16 * i);
@@ -519,18 +556,22 @@ private:
         return result;
     }
     friend ChunkMap;
-
 };
 
 struct ChunkMap {
     constexpr static auto SIZE = 0x8000;
-    constexpr static auto COUNT = SIZE/sizeof(Chunk);
+    constexpr static auto COUNT = SIZE / sizeof(Chunk);
     std::array<Chunk, COUNT> chunks;
     static inline std::array<Chunk::pixelType, COUNT> chunk_pixels;
     static inline std::bitset<COUNT> computed_pixels;
     static ChunkMap fromSocket(FILE* dataStream) {
         ChunkMap result{};
         stdr::generate(result.chunks, [=] { return Chunk::fromSocket(dataStream); });
+        return result;
+    }
+    static ChunkMap fromBytes(const u8* dataStream) {
+        ChunkMap result{};
+        stdr::generate(result.chunks, [&] { return Chunk::fromBytes(dataStream); });
         return result;
     }
 
@@ -549,14 +590,14 @@ struct SpriteMappingEntry {
     struct dimentions {
         u8 height : 2;
         u8 width : 2;
-        auto operator<=>(const dimentions& ) const noexcept = default;
+        auto operator<=>(const dimentions&) const noexcept = default;
     } dim;
     BatCell art_tile;
     s16 x_pos;
 
     auto operator<=>(const SpriteMappingEntry&) const = default;
 
-    using pixelType = std::array<std::array<u8, Tile::WIDTH*4>, Tile::WIDTH*4>;
+    using pixelType = std::array<std::array<u8, Tile::WIDTH * 4>, Tile::WIDTH * 4>;
     using Map = std::map<SpriteMappingEntry, s64>;
     static constexpr auto WIDTH = Tile::WIDTH * 4;
 
@@ -564,14 +605,16 @@ struct SpriteMappingEntry {
     static inline std::vector<pixelType> mappingPixels = std::vector<pixelType>(8);
 
     static SpriteMappingEntry fromBytes(const u8* data) {
-        SpriteMappingEntry result {
-            .y_pos = static_cast<s8>(data[0]),
-            .dim = {
-                .height = static_cast<u8>(data[1] & 0b11),
-                .width = static_cast<u8>((data[1] & 0b1100) >> 2),
-            },
-            .art_tile = BatCell::fromBytes(&data[2]),
-            .x_pos = static_cast<s16> (data[4] * 0x100 + data[5]),
+        auto artPtr = &data[2];
+        const SpriteMappingEntry result{
+                .y_pos = static_cast<s8>(data[0]),
+                .dim =
+                        {
+                                .height = static_cast<u8>(data[1] & 0b11),
+                                .width = static_cast<u8>((data[1] & 0b1100) >> 2),
+                        },
+                .art_tile = BatCell::fromBytes(artPtr),
+                .x_pos = static_cast<s16>(data[4] * 0x100 + data[5]),
         };
 
         return result;
@@ -582,24 +625,26 @@ struct SpriteMappingEntry {
         recvStrict(dataStream, reinterpret_cast<char*>(&data), sizeof(SpriteMappingEntry));
         return fromBytes(data);
     }
+
 private:
     void for_rows(const stdr::range auto& rows, stdr::range auto& output, int tileX, const auto& map) const {
-        for (auto [row, outRow]: stdr::zip_view(rows, output)) {
+        for (auto [row, outRow] : stdr::zip_view(rows, output)) {
             const auto pixelStart = outRow.begin() + Tile::WIDTH * tileX;
             if (art_tile.flip_x) {
                 stdr::transform(stdr::reverse_view(row), pixelStart, map);
-            } else {
+            }
+            else {
                 stdr::transform(row, pixelStart, map);
             }
         }
     };
     [[nodiscard]] pixelType build_bytes(const TileSet& tile_set) const {
-        auto map_palette = [this] (const u8 pixel) -> u8 {
+        auto map_palette = [this](const u8 pixel) -> u8 {
             if (pixel == 0)
                 return 0;
             int color = pixel + 0x10 * art_tile.palette;
             if (art_tile.priority)
-                color |= 1<<7;
+                color |= 1 << 7;
             return color;
         };
 
@@ -621,10 +666,11 @@ private:
             for (int tileX = 0; tileX <= dim.width; tileX++) {
                 auto [pixels] = tile_set.tiles[art_indexes[tileY][tileX]];
                 const auto rowStart = result.begin() + Tile::WIDTH * tileY;
-                auto partialResult = stdr::subrange(rowStart, rowStart+Tile::WIDTH);
+                auto partialResult = stdr::subrange(rowStart, rowStart + Tile::WIDTH);
                 if (art_tile.flip_y) {
                     for_rows(stdr::reverse_view(pixels), partialResult, tileX, map_palette);
-                } else {
+                }
+                else {
                     for_rows(pixels, partialResult, tileX, map_palette);
                 }
             }
@@ -633,6 +679,7 @@ private:
     }
 
     friend RingMappingEntry;
+
 public:
     [[nodiscard]] SpriteMappingEntry withBase(const BatCell& base) const {
         auto cpy = *this;
@@ -657,7 +704,7 @@ struct SpriteMappingFrame {
     s16 size{};
     std::vector<SpriteMappingEntry> entries;
 
-    constexpr static SpriteMappingFrame fromBytes(const u8* data)  {
+    constexpr static SpriteMappingFrame fromBytes(const u8* data) {
         s16 size;
         std::memcpy(&size, data, sizeof(size));
         data += sizeof(size);
@@ -699,8 +746,8 @@ struct ObjectTableEntry {
         bool horizontal_mirror : 1;
         bool vertical_mirror : 1;
         bool use_level_coordinates : 1;
-        bool p1_multi_flag: 1;
-        bool p2_multi_flag: 1;
+        bool p1_multi_flag : 1;
+        bool p2_multi_flag : 1;
         bool static_mapping : 1;
         bool compound_sprite : 1;
         bool on_screen : 1;
@@ -735,7 +782,7 @@ struct ObjectTableEntry {
             u8 angle;
             u8 flip_angle;
             struct {
-                u8 size: 6;
+                u8 size : 6;
                 u8 type : 2;
             } collision_flags;
             u8 collision_property;
@@ -743,32 +790,32 @@ struct ObjectTableEntry {
             struct {
                 bool x_right : 1;
                 bool y_down : 1;
-                bool rss: 1;
-                bool sonic_standing: 1;
-                bool tails_standing: 1;
-                bool sonic_pushing: 1;
-                bool tails_pushing: 1;
-                bool to_be_deleted: 1;
+                bool rss : 1;
+                bool sonic_standing : 1;
+                bool tails_standing : 1;
+                bool sonic_pushing : 1;
+                bool tails_pushing : 1;
+                bool to_be_deleted : 1;
             } status;
 
             union {
                 struct {
                     u8 blank : 3;
-                    bool bounce_off: 1;
-                    bool negate_fire: 1;
-                    bool negate_lightning: 1;
-                    bool negate_bubble: 1;
-                    u8 blank2: 1;
+                    bool bounce_off : 1;
+                    bool negate_fire : 1;
+                    bool negate_lightning : 1;
+                    bool negate_bubble : 1;
+                    u8 blank2 : 1;
                 } shield_reaction;
                 struct {
                     bool has_shield : 1;
-                    bool is_invincible: 1;
-                    bool has_speed_shoes: 1;
-                    bool unused: 1;
-                    bool fire_shield: 1;
-                    bool lightning_shield: 1;
-                    bool bubble_shield: 1;
-                    bool infinite_inertia: 1;
+                    bool is_invincible : 1;
+                    bool has_speed_shoes : 1;
+                    bool unused : 1;
+                    bool fire_shield : 1;
+                    bool lightning_shield : 1;
+                    bool bubble_shield : 1;
+                    bool infinite_inertia : 1;
                 } status_secondary;
             };
 
@@ -860,7 +907,8 @@ struct ObjectTableEntry {
         result.sub_x_coordinate = std::byteswap(result.sub_x_coordinate);
         result.y_pos = std::byteswap(result.y_pos);
 
-        result.art_tile = BatCell::fromBytes(reinterpret_cast<u8*>(&result.art_tile));
+        const auto* src = reinterpret_cast<const u8*>(&result.art_tile);
+        result.art_tile = BatCell::fromBytes(src);
 
         if (result.render_flags.compound_sprite) {
             result.mainspr_childsprites = std::byteswap(result.mainspr_childsprites);
@@ -868,7 +916,8 @@ struct ObjectTableEntry {
                 c.x_pos = std::byteswap(c.x_pos);
                 c.y_pos = std::byteswap(c.y_pos);
             }
-        } else {
+        }
+        else {
             result.sub_y_coordinate = std::byteswap(result.sub_y_coordinate);
             result.x_vel = std::byteswap(result.x_vel);
             result.y_vel = std::byteswap(result.y_vel);
@@ -901,12 +950,10 @@ struct Sprite {
             u16 count;
             recvStrict(dataStream, reinterpret_cast<char*>(&count), sizeof(count));
             result.children.resize(result.object.mainspr_childsprites);
-            stdr::generate(result.children, [=]{ return SpriteMappingFrame::fromSocket(dataStream); });
+            stdr::generate(result.children, [=] { return SpriteMappingFrame::fromSocket(dataStream); });
         }
         return result;
     }
-
-
 };
 
 struct RingMappingEntry {
@@ -914,7 +961,7 @@ struct RingMappingEntry {
     struct dimentions {
         u8 height : 2;
         u8 width : 2;
-        auto operator<=>(const dimentions& ) const noexcept = default;
+        auto operator<=>(const dimentions&) const noexcept = default;
     } dim;
     BatCell art_tile;
     s16 x_pos;
@@ -924,39 +971,42 @@ struct RingMappingEntry {
     static RingMappingEntry fromSocket(FILE* dataStream) {
         u8 data[8];
         recvStrict(dataStream, reinterpret_cast<char*>(&data), 8);
-
-        RingMappingEntry result {
-            .y_pos = static_cast<s8>(data[1]),
-            .dim = {
-                .height = static_cast<u8>(data[3] & 0b11),
-                .width = static_cast<u8>((data[3] & 0b1100) >> 2),
-            },
-            .art_tile = BatCell::fromBytes(&data[4]),
-            .x_pos = static_cast<s16> (data[6] * 0x100 + data[7]),
+        const auto* artPtr = &data[4];
+        RingMappingEntry result{
+                .y_pos = static_cast<s8>(data[1]),
+                .dim =
+                        {
+                                .height = static_cast<u8>(data[3] & 0b11),
+                                .width = static_cast<u8>((data[3] & 0b1100) >> 2),
+                        },
+                .art_tile = BatCell::fromBytes(artPtr),
+                .x_pos = static_cast<s16>(data[6] * 0x100 + data[7]),
         };
 
         return result;
     }
 
     void for_rows(const stdr::range auto& rows, stdr::range auto& output, int tileX, const auto& map) const {
-        for (auto [row, outRow]: stdr::zip_view(rows, output)) {
+        for (auto [row, outRow] : stdr::zip_view(rows, output)) {
             const auto pixelStart = outRow.begin() + Tile::WIDTH * tileX;
             if (art_tile.flip_x) {
                 stdr::transform(stdr::reverse_view(row), pixelStart, map);
-            } else {
+            }
+            else {
                 stdr::transform(row, pixelStart, map);
             }
         }
     };
     [[nodiscard]] pixelType build_bytes(const TileSet& tile_set) const {
         const SpriteMappingEntry tmp{
-            .y_pos = y_pos,
-            .dim = {
-                .height = static_cast<u8>(dim.height),
-                .width = static_cast<u8>(dim.width),
-            },
-            .art_tile = art_tile,
-            .x_pos = x_pos,
+                .y_pos = y_pos,
+                .dim =
+                        {
+                                .height = static_cast<u8>(dim.height),
+                                .width = static_cast<u8>(dim.width),
+                        },
+                .art_tile = art_tile,
+                .x_pos = x_pos,
         };
 
         return tmp.build_bytes(tile_set);
@@ -974,10 +1024,12 @@ struct ringLocation {
 };
 
 struct RingData {
-    static constexpr auto COUNT = (0xEB00 - 0xE702)/2;
+    static constexpr auto COUNT = (0xEB00 - 0xE702) / 2;
     std::array<ringStatus, COUNT> status{};
+
 private:
     std::array<ringLocation, COUNT> locations{};
+
 public:
     std::array<RingMappingEntry, 8> ring_mappings{};
     int ringCount{};
@@ -985,9 +1037,7 @@ public:
 
     inline static std::set<s32> tileDependencies = {};
 
-    auto locationSubrange() {
-        return stdr::subrange(locations.begin(), locations.begin() + ringCount);
-    }
+    auto locationSubrange() { return stdr::subrange(locations.begin(), locations.begin() + ringCount); }
 
     void set_location_from_socket(FILE* dataStream) {
         auto out = this->locations.begin();
@@ -1011,8 +1061,7 @@ public:
     }
 
     void set_mappings_from_socket(FILE* dataStream) {
-        stdr::generate(this->ring_mappings,
-            [=] { return RingMappingEntry::fromSocket(dataStream); });
+        stdr::generate(this->ring_mappings, [=] { return RingMappingEntry::fromSocket(dataStream); });
         calculateTileDependencies();
     }
 
@@ -1037,6 +1086,8 @@ public:
 
 struct RenderingData {
     inline static std::array<u8, 0x10000> currentVRAM;
+    inline static std::array<u8, 0x8000> chunkRAM;
+    inline static std::array<u8, 0x1800> blockRAM;
     Palette palette;
     Palette water_palette;
     int water_line = 0;
@@ -1068,12 +1119,19 @@ struct RenderingData {
     // Only *some* of the chunks need to be rebuilt
     // ============================================
     std::vector<std::set<int>> tileChunkDependencies;
+    std::vector<std::set<int>> blockChunkDependencies;
     std::set<int> newly_updated_tiles;
-    void setChunkDependecies() {
+    std::set<int> newly_updated_blocks;
+    std::set<int> newly_updated_chunks;
+    void setChunkDependencies() {
         tileChunkDependencies.clear();
         tileChunkDependencies.resize(tileset.tiles.size());
+        blockChunkDependencies.clear();
+        blockChunkDependencies.resize(blocks.blocks.size());
+
         for (auto [i, chunk] : stdv::enumerate(chunks.chunks)) {
             for (const auto& block : chunk.parts | stdv::join) {
+                blockChunkDependencies[block.vram_index].insert(static_cast<int>(i));
                 for (const auto& tile : blocks.blocks[block.vram_index].cells | stdv::join) {
                     tileChunkDependencies[tile.vram_index].insert(static_cast<int>(i));
                 }
@@ -1082,12 +1140,13 @@ struct RenderingData {
     }
 
     std::set<int> chunksToUpdate() {
-        std::set<int> result;
-        for (auto c :
-            newly_updated_tiles |
-            stdv::transform([this](const int i) { return tileChunkDependencies[i]; })) {
+        std::set<int> result = newly_updated_chunks;
+        for (auto c : newly_updated_tiles | stdv::transform([this](const int i) { return tileChunkDependencies[i]; })) {
             result.merge(c);
-            }
+        }
+        for (auto c : newly_updated_blocks | stdv::transform([this](const int i) { return blockChunkDependencies[i]; })) {
+            result.merge(c);
+        }
         return result;
     };
 
@@ -1115,20 +1174,16 @@ struct RenderingData {
         SpriteMappingEntry::mappingPixels.resize(8);
     }
 
-    [[nodiscard]] u32 getCurrentActFGEvent() const {
-        return (currentZoneAct << 16) + fgEvent / 4;
-    }
+    [[nodiscard]] u32 getCurrentActFGEvent() const { return (currentZoneAct << 16) + fgEvent / 4; }
 
-    [[nodiscard]] u32 getCurrentActBGEvent() const {
-        return (currentZoneAct << 16) + bgEvent / 4;
-    }
+    [[nodiscard]] u32 getCurrentActBGEvent() const { return (currentZoneAct << 16) + bgEvent / 4; }
 };
 
 // static_assert(sizeof(Color3Bit) == 2);
 // static_assert(std::has_unique_object_representations_v<Color3Bit>);
 static_assert(sizeof(Tile::tilerow) == 4);
 static_assert(std::has_unique_object_representations_v<Tile::tilerow>);
-static_assert(sizeof(Tile) == 0x8*0x8);
+static_assert(sizeof(Tile) == 0x8 * 0x8);
 static_assert(std::has_unique_object_representations_v<Tile>);
 static_assert(sizeof(BatCell) == 2);
 static_assert(std::has_unique_object_representations_v<BatCell>);
@@ -1219,5 +1274,4 @@ static_assert(offsetof(ObjectTableEntry, lrb_solid_bit) == 0x46);
 static_assert(offsetof(ObjectTableEntry, mainspr_childsprites) == 0x16);
 
 
-
-#endif //SONIC3ATLUS_STRUCTS_H
+#endif // SONIC3ATLUS_STRUCTS_H

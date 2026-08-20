@@ -345,6 +345,33 @@ If however the game is currently paused, this acts as a NOP.
 
 */
 
+template <typename Out>
+static void xorDecode(FILE* fd, Out& o, int elemSize, std::set<int>& newlyUpdated) {
+    int msgLen;
+    recvStrict(fd, &msgLen, 4);
+    std::vector<u8> encoding;
+    encoding.resize(msgLen);
+    recvStrict(fd, encoding.data(), msgLen);
+
+    const auto start = o.begin();
+    const auto end = o.end();
+    const auto srcEnd = encoding.end();
+    auto dest = o.begin();
+    auto src = encoding.begin();
+
+    while (dest < end && src < srcEnd) {
+        if (*src != 0) {
+            *dest ^= *src++;
+            newlyUpdated.insert((dest++ - start)/elemSize);
+        } else {
+            u16 cnt = src[1];
+            cnt += (src[2] << 8);
+            dest += cnt + 1;
+            src += 3;
+        }
+    }
+}
+
 static s32 getNextFrame(FILE* fd) {
     char msg[9] = {};
     char dump[128];
@@ -377,29 +404,7 @@ static s32 getNextFrame(FILE* fd) {
             flags |= FULL_TILE_UPDATED;
         }
         else if (strncmp(msg, "VRAMDIFF", 8) == 0) {
-            int msgLen;
-            recvStrict(fd, &msgLen, 4);
-            std::vector<u8> encoding;
-            encoding.resize(msgLen);
-            recvStrict(fd, encoding.data(), msgLen);
-
-            const auto start = RenderingData::currentVRAM.begin();
-            const auto end = RenderingData::currentVRAM.end();
-            const auto srcEnd = encoding.end();
-            auto dest = RenderingData::currentVRAM.begin();
-            auto src = encoding.begin();
-
-            while (dest < end && src < srcEnd) {
-                if (*src != 0) {
-                    *dest ^= *src++;
-                    gameData.newly_updated_tiles.insert((dest++ - start)/0x20);
-                } else {
-                    u16 cnt = src[1];
-                    cnt += (src[2] << 8);
-                    dest += cnt + 1;
-                    src += 3;
-                }
-            }
+            xorDecode(fd, RenderingData::currentVRAM, 0x20, gameData.newly_updated_tiles);
             gameData.tileset = TileSet::fromBytes(RenderingData::currentVRAM.data());
             flags |= PARTIAL_TILE_UPDATED;
         }
@@ -450,12 +455,24 @@ static s32 getNextFrame(FILE* fd) {
             flags |= PARTIAL_TILE_UPDATED;
         }
         else if (strncmp(msg, "BLOCKTST", 8) == 0) {
-            gameData.blocks = BlockMap::fromSocket(fd);
+            recvStrict(fd, RenderingData::blockRAM.data(), RenderingData::blockRAM.size());
+            gameData.blocks = BlockMap::fromBytes(RenderingData::blockRAM.data());
             flags |= BLOCK_LIST_UPDATED;
         }
+        else if (strncmp(msg, "BLCKDIFF", 8) == 0) {
+            xorDecode(fd, RenderingData::blockRAM, 0x8, gameData.newly_updated_blocks);
+            gameData.blocks = BlockMap::fromBytes(RenderingData::blockRAM.data());
+            flags |= PARTIAL_BLOCK_UPDATED;
+        }
         else if (strncmp(msg, "CHUNKTST", 8) == 0) {
-            gameData.chunks = ChunkMap::fromSocket(fd);
+            recvStrict(fd, RenderingData::chunkRAM.data(), RenderingData::chunkRAM.size());
+            gameData.chunks = ChunkMap::fromBytes(RenderingData::chunkRAM.data());
             flags |= CHUNK_LIST_UPDATED;
+        }
+        else if (strncmp(msg, "CHNKDIFF", 8) == 0) {
+            xorDecode(fd, RenderingData::chunkRAM, 0x80, gameData.newly_updated_blocks);
+            gameData.chunks = ChunkMap::fromBytes(RenderingData::chunkRAM.data());
+            flags |= PARTIAL_CHUNK_UPDATED;
         }
         else if (strncmp(msg, "H_SCROLL", 8) == 0) {
             for (int i = 0; i < 0x380 / 2; i++)
@@ -668,9 +685,9 @@ static updateResult update_data() {
             fprintf(stderr, "Failed to build chunk full update\n");
             return UPDATE_FAILURE;
         }
-        gameData.setChunkDependecies();
+        gameData.setChunkDependencies();
     }
-    else if (flags & PARTIAL_TILE_UPDATED) {
+    else if (flags & (PARTIAL_BLOCK_UPDATED | PARTIAL_CHUNK_UPDATED | PARTIAL_TILE_UPDATED)) {
         if (!partialTileUpdate()) {
             fprintf(stderr, "Failed to build tile partial update\n");
             return UPDATE_FAILURE;
@@ -891,7 +908,11 @@ static bool renderMessages(float delta_time) {
         const auto m2 = std::format("FG EVENT: {:08x}", gameData.getCurrentActFGEvent());
         const auto m3 = std::format("GameMode: {:02x}", gameData.gameMode);
 
-        SDL_FRect eventMsgBox = {.x = .9f * WINDOW_WIDTH, .y = 8, .w = .18f * WINDOW_WIDTH, .h = 64};
+        const auto v1 = std::format("BG Ev Vars: {::04x}", gameData.bgEventVars);
+        const auto v2 = std::format("FG Ev Vars: {::04x}", gameData.fgEventVars);
+        const auto v3 = std::format("?? Ev Vars: {::04x}", gameData.unknownEventVars);
+
+        SDL_FRect eventMsgBox = {.x = .75f * WINDOW_WIDTH, .y = 8, .w = .24f * WINDOW_WIDTH, .h = 128};
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
         SDL_RenderFillRect(renderer, &eventMsgBox);
         SDL_SetRenderDrawColor(renderer, 128, 128, 255, 255);
@@ -900,6 +921,16 @@ static bool renderMessages(float delta_time) {
         SDL_RenderDebugText(renderer, .91f * WINDOW_WIDTH, 30, m2.c_str());
         SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
         SDL_RenderDebugText(renderer, .91f * WINDOW_WIDTH, 50, m3.c_str());
+
+        float msgX1 = 8.0f * static_cast<float>(v1.size() - v2.size());
+        float msgX2 = msgX1 + 8.0f * static_cast<float>(v2.size() - v3.size());
+
+        SDL_SetRenderDrawColor(renderer, 128, 128, 255, 255);
+        SDL_RenderDebugText(renderer, .76f * WINDOW_WIDTH, 70, v1.c_str());
+        SDL_SetRenderDrawColor(renderer, 255, 128, 128, 255);
+        SDL_RenderDebugText(renderer, .76f * WINDOW_WIDTH + msgX1, 90, v2.c_str());
+        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+        SDL_RenderDebugText(renderer, .76f * WINDOW_WIDTH + msgX2, 110, v3.c_str());
     }
 
 
