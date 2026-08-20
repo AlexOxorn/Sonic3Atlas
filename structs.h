@@ -1104,7 +1104,7 @@ struct RenderingData {
     u16 frameCount;
     u16 shakeFlag;
     s16 shakeOffset;
-
+    u8 gameMode;
 
     static void clearCaches() {
         BlockMap::computed_pixels.reset();

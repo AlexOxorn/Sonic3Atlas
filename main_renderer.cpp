@@ -556,8 +556,7 @@ static s32 getNextFrame(FILE* fd) {
             gameData.frameCount += 1;
         }
         else if (strncmp(msg, "GAMEMODE", 8) == 0) {
-            u8 gameMode = 0;
-            recvStrict(fd, &gameMode, 1);
+            recvStrict(fd, &gameData.gameMode, 1);
         }
         else if (strncmp(msg, "SHAKEOFF", 8) == 0) {
             recvStrict(fd, &gameData.shakeFlag, 2);
@@ -888,8 +887,9 @@ static bool renderMessages(float delta_time) {
 
 
     if (!FFMPEG_OUT) {
-        auto m1 = std::format("BG EVENT: {:08x}", gameData.getCurrentActBGEvent());
-        auto m2 = std::format("FG EVENT: {:08x}", gameData.getCurrentActFGEvent());
+        const auto m1 = std::format("BG EVENT: {:08x}", gameData.getCurrentActBGEvent());
+        const auto m2 = std::format("FG EVENT: {:08x}", gameData.getCurrentActFGEvent());
+        const auto m3 = std::format("GameMode: {:02x}", gameData.gameMode);
 
         SDL_FRect eventMsgBox = {.x = .9f * WINDOW_WIDTH, .y = 8, .w = .18f * WINDOW_WIDTH, .h = 64};
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
@@ -898,6 +898,8 @@ static bool renderMessages(float delta_time) {
         SDL_RenderDebugText(renderer, .91f * WINDOW_WIDTH, 10, m1.c_str());
         SDL_SetRenderDrawColor(renderer, 255, 128, 128, 255);
         SDL_RenderDebugText(renderer, .91f * WINDOW_WIDTH, 30, m2.c_str());
+        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+        SDL_RenderDebugText(renderer, .91f * WINDOW_WIDTH, 50, m3.c_str());
     }
 
 
@@ -977,6 +979,65 @@ static bool operFile(const char* filename) {
         x = nullptr;                                                                                                   \
     }
 
+static SDL_AppResult getGameUpdate() {
+    if (!pauseData) {
+        const auto res = update_data();
+        if (res == UPDATE_LAG_FRAME) {
+            // fprintf(stderr, "LAG FRAME\n");
+        }
+        if (res == UPDATE_FAILURE) {
+            fprintf(stderr, "Update Failure\n");
+            return SDL_APP_FAILURE;
+        }
+        if (FFMPEG_OUT && (res == UPDATE_EOF)) {
+            return SDL_APP_SUCCESS;
+        }
+    }
+    return SDL_APP_CONTINUE;
+}
+
+static void clampScroll() {
+    if (x_loop == Options::OOB::CLAMP && scrollX < 0)
+        scrollX = 0;
+    if (!gameData.level_chunks.empty()) {
+        if (x_loop == Options::OOB::CLAMP &&
+            scrollX >= gameData.level_chunks[0].size() * Chunk::WIDTH - RENDER_WIDTH)
+            scrollX = gameData.level_chunks[0].size() * Chunk::WIDTH - RENDER_WIDTH;
+
+
+        if (dynamicResolution && gameData.level_chunks.size() * Chunk::WIDTH <= RENDER_HEIGHT) {
+            scrollY = 0;
+        }
+        else if (CLAMP_Y && scrollY < 0) {
+            scrollY = 0;
+        }
+        else if (CLAMP_Y && scrollY >= gameData.level_chunks.size() * Chunk::WIDTH - RENDER_HEIGHT)
+            scrollY = gameData.level_chunks.size() * Chunk::WIDTH - RENDER_HEIGHT;
+        else {
+            scrollY = static_cast<float>(gameData.scroll_y - RENDER_HEIGHT / 2);
+        }
+    }
+    if (gameData.screen_min_y < 0 && scrollY < 0) {
+        scrollY += gameData.vertical_loop;
+    }
+}
+
+static void followCamera() {
+    scrollX = gameData.screen_position_A.first + GENESIS_RESOLUTION.first - RENDER_WIDTH/2;
+    scrollY = gameData.screen_position_A.second + GENESIS_RESOLUTION.second - RENDER_HEIGHT/2;
+    // clampScroll();
+}
+
+static void followSonic() {
+    if (gameData.scroll_x > 0 && gameData.scroll_y > 0) {
+        scrollX = static_cast<float>(gameData.scroll_x - RENDER_WIDTH / 2);
+        scrollY = static_cast<float>(gameData.scroll_y - RENDER_HEIGHT / 2);
+        clampScroll();
+        if (gameData.shakeFlag) {
+            scrollY -= gameData.shakeOffset;
+        }
+    }
+}
 
 namespace Output {
     SDL_AppResult INIT() {
@@ -995,7 +1056,7 @@ namespace Output {
                                                SDL_Log("Socket Not Implemented Yet");
                                                return false;
                                            }},
-                                  config.inStream);
+                                  baseConfig.inStream);
 
         if (!success)
             return SDL_APP_FAILURE;
@@ -1038,7 +1099,7 @@ namespace Output {
         }
 
         if (!dynamicResolution) {
-            INTERNAL_RESOLUTION = std::get<0>(config.internalResolution);
+            INTERNAL_RESOLUTION = std::get<0>(baseConfig.internalResolution);
         }
 
         SDL_SetRenderLogicalPresentation(renderer, RENDER_WIDTH, RENDER_HEIGHT, PRESENTATION_MODE);
@@ -1066,8 +1127,16 @@ namespace Output {
             SDL_Log("Failed to initialize source textures: %s\n", SDL_GetError());
         }
 
+        config = baseConfig;
         return update_data() != UPDATE_FAILURE ? SDL_APP_CONTINUE : SDL_APP_FAILURE;
     }
+
+    static void overRideConfig() {
+        switch (gameData.currentZoneAct) {
+            default: break;
+        }
+    }
+
     SDL_AppResult EVENT(void* appstate, SDL_Event* event) {
         if (event->type == SDL_EVENT_KEY_DOWN) {
             if ((event->key.mod & SDL_KMOD_CTRL) == 0) {
@@ -1195,73 +1264,29 @@ namespace Output {
         if (previousBuffer == nullptr)
             previousBuffer = static_cast<u32*>(calloc(FFMPEG_BYTES_PER_FRAME / sizeof(u32), sizeof(u32)));
 
+
+
         const u64 current_ticks = SDL_GetTicks();
         // Delta time in seconds
         delta_time = static_cast<float>(current_ticks - last_ticks) / 1000.0f;
         last_ticks = current_ticks;
-        // printf("DT: %f\n", 1/delta_time);
 
+        if (const auto res = getGameUpdate(); res != SDL_APP_CONTINUE)
+            return res;
 
-        bool success = true;
-        if (!pauseData) {
-            const auto res = update_data();
-            if (res == UPDATE_LAG_FRAME) {
-                // fprintf(stderr, "LAG FRAME\n");
-            }
-            if (res == UPDATE_FAILURE) {
-                fprintf(stderr, "Update Failure\n");
-                return SDL_APP_FAILURE;
-            }
-            if (FFMPEG_OUT && (res == UPDATE_EOF)) {
-                return SDL_APP_SUCCESS;
-            }
+        switch (config.follow) {
+            case Options::Follow::PLAYER:
+                followSonic();
+                break;
+            case Options::Follow::CAMERA:
+                followCamera();
+                break;
         }
-
-        if (gameData.scroll_x > 0 && gameData.scroll_y > 0) {
-            scrollX = static_cast<float>(gameData.scroll_x - RENDER_WIDTH / 2);
-            scrollY = static_cast<float>(gameData.scroll_y - RENDER_HEIGHT / 2);
-            if (x_loop == Options::OOB::CLAMP && scrollX < 0)
-                scrollX = 0;
-            if (!gameData.level_chunks.empty()) {
-                if (x_loop == Options::OOB::CLAMP &&
-                    scrollX >= gameData.level_chunks[0].size() * Chunk::WIDTH - RENDER_WIDTH)
-                    scrollX = gameData.level_chunks[0].size() * Chunk::WIDTH - RENDER_WIDTH;
-
-
-                if (dynamicResolution && gameData.level_chunks.size() * Chunk::WIDTH <= RENDER_HEIGHT) {
-                    scrollY = 0;
-                }
-                else if (CLAMP_Y && scrollY < 0) {
-                    scrollY = 0;
-                }
-                else if (CLAMP_Y && scrollY >= gameData.level_chunks.size() * Chunk::WIDTH - RENDER_HEIGHT)
-                    scrollY = gameData.level_chunks.size() * Chunk::WIDTH - RENDER_HEIGHT;
-                else {
-                    scrollY = static_cast<float>(gameData.scroll_y - RENDER_HEIGHT / 2);
-                }
-            }
-            else {
-                scrollX = 0;
-                scrollY = 0;
-            }
-            if (gameData.screen_min_y < 0 && scrollY < 0) {
-                scrollY += gameData.vertical_loop;
-            }
-        }
-
-        if (gameData.shakeFlag) {
-            scrollY -= gameData.shakeOffset;
-        }
-
 
         const auto ticks = SDL_GetTicks();
         const float seconds = static_cast<float>(ticks) / 1000;
 
         if (FFMPEG_OUT) {
-            // if (gameData.lagFrames) printf("LagFrameCount: %d\n", gameData.lagFrames);
-            if (gameData.lagFrames != gameData.frameCount - 1) {
-                // printf("Weird Lag/Frame count Lag: %d, Frames, %d\n", gameData.lagFrames, gameData.frameCount);
-            }
             for (int i = 0; i < gameData.frameCount; ++i) {
                 writeToFFMPEG();
             }
@@ -1269,13 +1294,14 @@ namespace Output {
 
         if (!redrawAll()) {
             fprintf(stderr, "Redraw Failure\n");
+            config = baseConfig;
             return SDL_APP_FAILURE;
         }
 
-
-        success = render_final_texture_lvl();
+        const bool success = render_final_texture_lvl();
         SDL_SetRenderLogicalPresentation(renderer, RENDER_WIDTH, RENDER_HEIGHT, SDL_LOGICAL_PRESENTATION_DISABLED);
         if (!renderMessages(delta_time)) {
+            config = baseConfig;
             return SDL_APP_FAILURE;
         }
         SDL_SetRenderLogicalPresentation(renderer, RENDER_WIDTH, RENDER_HEIGHT, PRESENTATION_MODE);
@@ -1287,6 +1313,7 @@ namespace Output {
         }
 
         SDL_RenderPresent(renderer);
+        config = baseConfig;
         return success ? SDL_APP_CONTINUE : SDL_APP_FAILURE;
     }
     SDL_AppResult CLEAR(void* appstate) {

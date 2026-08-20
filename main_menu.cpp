@@ -47,6 +47,7 @@ namespace Menu {
 
     static const char* resolutions[] = {"HD", "2K", "4K", "8K", "Genesis", "Full Height"};
     static const char* outOfBounds[] = {"Render Nothing", "Prevent Scrolling", "Simulate Loopback/Sewer"};
+    static const char* followNames[] = {"Player 1", "Camera"};
     constexpr int maxOutputIndex = 5;
     static Options::ResolutionType indexToResolution[] = {
             Options::ResolutionType{std::pair R_HD},
@@ -68,9 +69,11 @@ namespace Menu {
     static void FileInputSelect(void* userdata, const char* const* filelist, int filter) {
         if (filelist == nullptr) {
             SDL_Log("File dialog error: %s", SDL_GetError());
-        } else if (*filelist == nullptr) {
+        }
+        else if (*filelist == nullptr) {
             SDL_Log("User canceled the selection.");
-        } else {
+        }
+        else {
             std::string& out = *static_cast<std::string*>(userdata);
             out = filelist[0];
         }
@@ -82,7 +85,8 @@ namespace Menu {
         const stdfs::path dirpath = dir;
         if (dir.empty()) {
             directory = nullptr;
-        } else {
+        }
+        else {
             directory = dirpath.c_str();
         }
         SDL_SetHint(SDL_HINT_FILE_DIALOG_DRIVER, "zenity");
@@ -94,7 +98,8 @@ namespace Menu {
         const stdfs::path dirpath = dir;
         if (dir.empty()) {
             directory = nullptr;
-        } else {
+        }
+        else {
             directory = dirpath.c_str();
         }
         SDL_SetHint(SDL_HINT_FILE_DIALOG_DRIVER, "zenity");
@@ -170,9 +175,9 @@ namespace Menu {
         ImGui_ImplSDL3_InitForOpenGL(window, gl_context);
         ImGui_ImplOpenGL3_Init(glsl_version);
 
-        in_type_selected = config.getStreamType();
-        internal_type_selected = resolutionToIndex[config.internalResolution];
-        output_type_selected = resolutionToIndex[config.outputResolution];
+        in_type_selected = baseConfig.getStreamType();
+        internal_type_selected = resolutionToIndex[baseConfig.internalResolution];
+        output_type_selected = resolutionToIndex[baseConfig.outputResolution];
         return SDL_APP_CONTINUE;
     }
 
@@ -221,10 +226,10 @@ namespace Menu {
                         in_type_selected = n;
                         switch (in_type_selected) {
                             case 0:
-                                config.inStream = Options::FileInStream{};
+                                baseConfig.inStream = Options::FileInStream{};
                                 break;
                             case 1:
-                                config.inStream = Options::SocketInStream{};
+                                baseConfig.inStream = Options::SocketInStream{};
                                 break;
                             default:
                                 std::unreachable();
@@ -238,7 +243,7 @@ namespace Menu {
             }
 
             if (in_type_selected == 0) {
-                auto& [path] = std::get<0>(config.inStream);
+                auto& [path] = std::get<0>(baseConfig.inStream);
                 if (ImGui::Button("Select Log File")) {
                     // 2. Set up file filters
                     constexpr std::array filters = {
@@ -248,49 +253,51 @@ namespace Menu {
                 };
                 ImGui::SameLine();
                 displayFile(path);
-            } else if (in_type_selected == 1) {
+            }
+            else if (in_type_selected == 1) {
                 ImGui::Text("Not Yet Implemented");
             }
 
             ImGui::End();
 
             ImGui::Begin("Output");
-            ImGui::Checkbox("Render To File", &config.ffmpeg.active);
+            ImGui::Checkbox("Render To File", &baseConfig.ffmpeg.active);
 
-            if (config.ffmpeg.active) {
+            if (baseConfig.ffmpeg.active) {
                 char bufferFilename[128];
                 char bufferEncoder[128];
                 char bufferOptions[1024];
                 if (ImGui::Button("Select Output Directory")) {
-                    SelectFolder(config.ffmpeg.directory, config.ffmpeg.directory);
+                    SelectFolder(baseConfig.ffmpeg.directory, baseConfig.ffmpeg.directory);
                 };
                 ImGui::SameLine();
 
-                strcpy(bufferFilename, config.ffmpeg.filename.c_str());
+                strcpy(bufferFilename, baseConfig.ffmpeg.filename.c_str());
                 if (ImGui::InputText("Filename", bufferFilename, 128, ImGuiInputTextFlags_EnterReturnsTrue)) {
-                    config.ffmpeg.filename = bufferFilename;
+                    baseConfig.ffmpeg.filename = bufferFilename;
                 }
-                const auto filename = stdfs::path(config.ffmpeg.directory) / stdfs::path(config.ffmpeg.filename);
+                const auto filename =
+                        stdfs::path(baseConfig.ffmpeg.directory) / stdfs::path(baseConfig.ffmpeg.filename);
                 displayFile(filename.c_str());
-                if (ImGui::Checkbox("Stream In Audio", &config.ffmpeg.withAudio)) {
+                if (ImGui::Checkbox("Stream In Audio", &baseConfig.ffmpeg.withAudio)) {
                 }
-                if (config.ffmpeg.withAudio) {
+                if (baseConfig.ffmpeg.withAudio) {
                     if (ImGui::Button("Select Audio File: ")) {
                         constexpr std::array filters = {SDL_DialogFileFilter{.name = "Audio Files (.mp3, .wav, .ogg)",
                                                                              .pattern = "wav;mp3;ogg"},
                                                         SDL_DialogFileFilter{.name = "All Files", .pattern = "*"}};
-                        SelectFile(config.ffmpeg.audioInput, filters, config.ffmpeg.audioInput);
+                        SelectFile(baseConfig.ffmpeg.audioInput, filters, baseConfig.ffmpeg.audioInput);
                     };
                     ImGui::SameLine();
-                    displayFile(config.ffmpeg.audioInput);
+                    displayFile(baseConfig.ffmpeg.audioInput);
                 }
-                strcpy(bufferEncoder, config.ffmpeg.video_encoder.c_str());
+                strcpy(bufferEncoder, baseConfig.ffmpeg.video_encoder.c_str());
                 if (ImGui::InputText("Video Encoder", bufferEncoder, 128, ImGuiInputTextFlags_EnterReturnsTrue)) {
-                    config.ffmpeg.video_encoder = bufferEncoder;
+                    baseConfig.ffmpeg.video_encoder = bufferEncoder;
                 }
-                strcpy(bufferOptions, config.ffmpeg.other_options.c_str());
+                strcpy(bufferOptions, baseConfig.ffmpeg.other_options.c_str());
                 if (ImGui::InputText("Other Options", bufferOptions, 1024, ImGuiInputTextFlags_EnterReturnsTrue)) {
-                    config.ffmpeg.other_options = bufferOptions;
+                    baseConfig.ffmpeg.other_options = bufferOptions;
                 }
             }
 
@@ -303,7 +310,7 @@ namespace Menu {
                     const bool is_selected = (internal_type_selected == n);
                     if (ImGui::Selectable(resolutions[n], is_selected)) {
                         internal_type_selected = n;
-                        config.internalResolution = indexToResolution[internal_type_selected];
+                        baseConfig.internalResolution = indexToResolution[internal_type_selected];
                     }
                     if (is_selected)
                         ImGui::SetItemDefaultFocus();
@@ -317,7 +324,7 @@ namespace Menu {
                     const bool is_selected = (output_type_selected == n);
                     if (ImGui::Selectable(resolutions[n], is_selected)) {
                         output_type_selected = n;
-                        config.outputResolution =
+                        baseConfig.outputResolution =
                                 std::get<std::pair<int, int>>(indexToResolution[output_type_selected]);
                     }
                     if (is_selected)
@@ -327,8 +334,8 @@ namespace Menu {
             }
 
             using oobType = std::underlying_type_t<Options::OOB>;
-            oobType* x_oob = reinterpret_cast<oobType*>(&config.horizontal_oob);
-            oobType* y_oob = reinterpret_cast<oobType*>(&config.vertical_oob);
+            auto* x_oob = reinterpret_cast<oobType*>(&baseConfig.horizontal_oob);
+            auto* y_oob = reinterpret_cast<oobType*>(&baseConfig.vertical_oob);
 
             if (const char* combo_preview_value = outOfBounds[*x_oob];
                 ImGui::BeginCombo("Horizontal Out of Bounds", combo_preview_value)) {
@@ -348,6 +355,22 @@ namespace Menu {
                     const bool is_selected = (*y_oob == n);
                     if (ImGui::Selectable(outOfBounds[n], is_selected)) {
                         *y_oob = n;
+                    }
+                    if (is_selected)
+                        ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+
+
+            using followType = std::underlying_type_t<Options::Follow>;
+            auto* follow = reinterpret_cast<followType*>(&baseConfig.follow);
+            if (const char* combo_preview_value = followNames[*follow];
+                ImGui::BeginCombo("Camera Follows", combo_preview_value)) {
+                for (int n = 0; n < IM_COUNTOF(followNames); n++) {
+                    const bool is_selected = (*follow == n);
+                    if (ImGui::Selectable(followNames[n], is_selected)) {
+                        *follow = n;
                     }
                     if (is_selected)
                         ImGui::SetItemDefaultFocus();

@@ -66,11 +66,9 @@ static void switchModes(void* appdata, const Mode mode) {
 
 extern "C" SDL_AppResult SDL_AppInit(void ** /*appstate*/, int  /*argc*/, char * argv[])
 {
+    baseConfig.setDefaults();
     if (stdfs::exists("config.txt")) {
-        config.deserialize(slurp("config.txt"));
-    }
-    else {
-        config.setDefaults();
+        baseConfig.deserialize(slurp("config.txt"));
     }
 
     SDL_SetAppMetadata("Sonic 3 Atlas Encoding", "1.0", "");
@@ -137,6 +135,6 @@ extern "C" void SDL_AppQuit(void * appstate, SDL_AppResult  /*result*/)
     if (!outFile) {
         std::cerr << "Error opening file!" << std::endl;
     }
-    outFile << config.serialize();
+    outFile << baseConfig.serialize();
     outFile.close();
 }

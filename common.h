@@ -81,6 +81,10 @@ struct Options {
         CLAMP,
         LOOP,
     };
+    enum class Follow {
+        PLAYER,
+        CAMERA,
+    };
     struct FFMpeg {
         std::string directory;
         std::string filename;
@@ -93,11 +97,11 @@ struct Options {
 
     InputVariant inStream;
     FFMpeg ffmpeg;
-    ResolutionType internalResolution;
-    std::pair<int, int> outputResolution;
+    ResolutionType internalResolution = std::pair R_4K;
+    std::pair<int, int> outputResolution = R_2K;
     OOB horizontal_oob = OOB::NONE;
     OOB vertical_oob = OOB::NONE;
-
+    Follow follow = Follow::PLAYER;
 
     [[nodiscard]] std::string serialize() const {
         std::stringstream ss;
@@ -127,6 +131,7 @@ struct Options {
 
         std::println(ss, "horizontal_oob:{}", std::to_underlying(horizontal_oob));
         std::println(ss, "vertical_oob:{}", std::to_underlying(vertical_oob));
+        std::println(ss, "follow:{}", std::to_underlying(follow));
 
         return ss.str();
     }
@@ -198,6 +203,10 @@ struct Options {
             else if (opt == "vertical_oob") {
                 auto int_val = static_cast<int>(strtol(val.c_str(), nullptr, 10));
                 vertical_oob = static_cast<OOB>(int_val);
+            }
+            else if (opt == "follow") {
+                auto int_val = static_cast<int>(strtol(val.c_str(), nullptr, 10));
+                follow = static_cast<Follow>(int_val);
             } else {
                 fprintf(stderr, "Failed to Parse %s:%s\n", opt.c_str(), val.c_str());
                 return;
@@ -218,6 +227,7 @@ struct Options {
         outputResolution = std::pair R_2K;
         horizontal_oob = OOB::NONE;
         vertical_oob = OOB::NONE;
+        follow = Follow::PLAYER;
     }
 
     [[nodiscard]] size_t getStreamType() const {
@@ -225,6 +235,7 @@ struct Options {
     }
 };
 
+inline Options baseConfig;
 inline Options config;
 
 inline std::string slurp(const std::string& path) {
