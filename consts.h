@@ -96,6 +96,27 @@ constexpr inline u8 DOOMSDAY_ZONE = 0xC;
 constexpr inline u8 HIDDEN_PALACE_ZONE = 0x16;
 constexpr inline u8 FINAL_BOSS_ZONE = 0x17;
 
+constexpr inline u8 MODE_INIT = 0x0;
+constexpr inline u8 MODE_SEGA = 0x4;
+constexpr inline u8 MODE_DEMO = 0x8;
+constexpr inline u8 MODE_LEVEL = 0xC;
+constexpr inline u8 MODE_RESET1 = 0x10;
+constexpr inline u8 MODE_CONTINUE = 0x14;
+constexpr inline u8 MODE_RESET2 = 0x18;
+constexpr inline u8 MODE_LVL_SELECT = 0x1c;
+constexpr inline u8 MODE_NOTHING = 0x20;
+constexpr inline u8 MODE_LVL_SELECT2 = 0x24;
+constexpr inline u8 MODE_LVL_SELECT3 = 0x28;
+constexpr inline u8 MODE_NO_WAY = 0x2C;
+constexpr inline u8 MODE_NO_WAY_RESULT = 0x30;
+constexpr inline u8 MODE_SPECIAL_STAGE = 0x34;
+constexpr inline u8 MODE_COMP_MODE = 0x38;
+constexpr inline u8 MODE_COMP_PLAYER_SEL = 0x3C;
+constexpr inline u8 MODE_COMP_LEVEL_SEL = 0x40;
+constexpr inline u8 MODE_COMP_RESULTS = 0x44;
+constexpr inline u8 MODE_SPECIAL_STAGE_RESULT = 0x48;
+constexpr inline u8 MODE_DATA_SELECT = 0x4C;
+constexpr inline u8 MODE_TIME_ATTACK_RECORDS = 0x50;
 
 #define LEVEL_ACT(LVL, ACT) (\
     ((LVL) == LAVA_REEF_ZONE && (ACT) == 3) ? (HIDDEN_PALACE_ZONE << 8) : \
@@ -124,7 +145,7 @@ constexpr inline auto MAX_SPRITE_TMP_TEXTURE = SPRITE_PER_TMP_TEXTURE_ROW * SPRI
 constexpr inline auto MAPPING_ENTRY_PER_ROW = 0x10;
 constexpr inline auto MAX_MAPPING_ENTRIES = 0x2000;
 constexpr inline auto MAPPING_ENTRY_ROWS = MAX_MAPPING_ENTRIES/MAPPING_ENTRY_PER_ROW;
-
+constexpr inline int EVENTs = 4;
 
 #define SCREEN_TEXTURE_WIDTH (horizontalChunksPerScreen * Chunk::WIDTH)
 #define SCREEN_TEXTURE_HEIGHT (verticalChunksPerScreen * Chunk::WIDTH)
@@ -185,11 +206,23 @@ extern SDL_BlendMode makeTransparentBlend;
 #define bg_texture_low (level_textures[LEVEL_BG])
 #define bg_texture_high (level_textures[LEVEL_HIGH | LEVEL_BG])
 
-extern SDL_Texture** texturesToRender[RENDER_COUNT];
+inline constexpr std::array levelTexturesToRender {
+    &bg_texture_low,
+    &level_texture_low,
+    &sprite_texture_low,
+    &rings_texture,
+    &bg_texture_high,
+    &level_texture_high,
+    &sprite_texture_high,
+};
+inline constexpr std::array spriteTexturesToRender {
+    &sprite_texture_low,
+    &sprite_texture_high,
+};
+
 
 static_assert(RENDER_COUNT == std::size(renderToggleTimers));
-static_assert(RENDER_COUNT == std::size(texturesToRender));
-static_assert(RENDER_COUNT == std::size(texturesToRender));
+static_assert(RENDER_COUNT == std::size(levelTexturesToRender));
 
 extern bool redrawLevel;
 
@@ -197,6 +230,8 @@ extern SDL_GPUDevice* device;
 
 extern float scrollX;
 extern float scrollY;
+extern float targetX;
+extern float targetY;
 extern float scale;
 extern float speed;
 extern bool pauseData;
@@ -218,7 +253,7 @@ extern std::string frameError;
 
 #define CLAMP_Y (y_loop == Options::OOB::CLAMP && gameData.screen_min_y >= 0)
 
-#define PRESENTATION_MODE ( RENDER_WIDTH > WINDOW_WIDTH ? SDL_LOGICAL_PRESENTATION_OVERSCAN : SDL_LOGICAL_PRESENTATION_LETTERBOX )
+#define PRESENTATION_MODE ( /*RENDER_WIDTH > WINDOW_WIDTH ? SDL_LOGICAL_PRESENTATION_OVERSCAN :*/ SDL_LOGICAL_PRESENTATION_LETTERBOX )
 
 constexpr inline u8 f1[] = { 0xA, 0,
      0x80, 0xD,0x20,  0,  0,  0,

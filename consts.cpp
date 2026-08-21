@@ -85,20 +85,13 @@ u32 renderFlags  = 0
     | RENDER_FOREGROUND_HIGH
     | RENDER_SPRITE_HIGH;
 
-SDL_Texture** texturesToRender[RENDER_COUNT] = {
-    &bg_texture_low,
-    &level_texture_low,
-    &sprite_texture_low,
-    &rings_texture,
-    &bg_texture_high,
-    &level_texture_high,
-    &sprite_texture_high,
-};
 
 bool redrawLevel = false;
 
 float scrollX = 0.0f;
 float scrollY = 0.0f;
+float targetX = 0.0f;
+float targetY = 0.0f;
 float scale=1.0f;
 float speed=0.0f;
 bool pauseData = false;
@@ -115,7 +108,7 @@ bool inputIsFile = false;
 RenderingData gameData;
 std::string frameError;
 
-std::pair<int, int> INTERNAL_RESOLUTION  = {16, 9};
+std::pair<int, int> INTERNAL_RESOLUTION  = R_FROM_HEIGHT(GENESIS_RESOLUTION.second);
 // std::pair<int, int> OUTPUT_RESOLUTION;
 // bool dynamicResolution = false;
 

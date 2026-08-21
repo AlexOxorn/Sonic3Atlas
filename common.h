@@ -83,7 +83,7 @@ struct Options {
     };
     enum class Follow {
         PLAYER,
-        CAMERA,
+        CAMERA
     };
     struct FFMpeg {
         std::string directory;
@@ -102,6 +102,7 @@ struct Options {
     OOB horizontal_oob = OOB::NONE;
     OOB vertical_oob = OOB::NONE;
     Follow follow = Follow::PLAYER;
+    float lerpFactor = 1.f;
 
     [[nodiscard]] std::string serialize() const {
         std::stringstream ss;

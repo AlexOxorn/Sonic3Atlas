@@ -348,6 +348,8 @@ public:
 
 
 struct Block {
+    static constexpr int WIDTH = 16;
+
     std::array<std::array<BatCell, 0x2>, 0x2> cells;
     static Block fromSocket(FILE* dataStream) {
         Block result{};
@@ -1154,7 +1156,7 @@ struct RenderingData {
     u16 currentZoneAct;
     u16 bgEvent;
     u16 fgEvent;
-    std::array<u16, 9> bgEventVars;
+    std::array<u16, 12> bgEventVars;
     std::array<u16, 6> fgEventVars;
     std::array<u16, 4> unknownEventVars;
     u16 lbzDeathEggEvent;
@@ -1164,6 +1166,10 @@ struct RenderingData {
     u16 shakeFlag;
     s16 shakeOffset;
     u8 gameMode;
+
+    [[nodiscard]] std::pair<u8, bool> getGameMode() const {
+        return {gameMode & 0x7F, gameMode & 0x80};
+    }
 
     static void clearCaches() {
         BlockMap::computed_pixels.reset();
@@ -1177,6 +1183,14 @@ struct RenderingData {
     [[nodiscard]] u32 getCurrentActFGEvent() const { return (currentZoneAct << 16) + fgEvent / 4; }
 
     [[nodiscard]] u32 getCurrentActBGEvent() const { return (currentZoneAct << 16) + bgEvent / 4; }
+
+    void clear() {
+        *this = RenderingData{};
+        currentVRAM = {};
+        blockRAM = {};
+        chunkRAM = {};
+        clearCaches();
+    }
 };
 
 // static_assert(sizeof(Color3Bit) == 2);

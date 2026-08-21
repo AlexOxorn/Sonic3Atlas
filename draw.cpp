@@ -524,7 +524,7 @@ static bool drawPlane(const std::vector<std::vector<u8>>& chunks, const float xO
 }
 
 
-static bool drawToBackgroundDefault(const bool prio, const bool swap_plane=false) {
+static bool drawToBackgroundDefault(const bool prio, const bool swap_plane = false) {
     const int offsetX = gameData.screen_position_A.first - gameData.screen_position_B.first;
     const int offsetY = gameData.screen_position_A.second - gameData.screen_position_B.second;
     const GET_LEFTMOST;
@@ -544,7 +544,7 @@ static bool drawToBackgroundDefault(const bool prio, const bool swap_plane=false
     return res;
 }
 
-static bool drawToLevelDefault(const bool prio, bool swap_plane=false) {
+static bool drawToLevelDefault(const bool prio, bool swap_plane = false) {
     auto res = drawPlane((DEBUG::swapFGBG ^ swap_plane) ? gameData.background_chunks : gameData.level_chunks);
     return res;
 }
@@ -687,7 +687,8 @@ namespace MHZ2 {
         const int offsetX = -x;
         const int offsetY = -y;
         auto res = drawPlane2(gameData.level_chunks,
-                              offsetX + gameData.screen_min_x + (SHIP_LOW_X - SHIP_HIGH_X - 1 - leftmostChunk) * Chunk::WIDTH,
+                              offsetX + gameData.screen_min_x +
+                                      (SHIP_LOW_X - SHIP_HIGH_X - 1 - leftmostChunk) * Chunk::WIDTH,
                               offsetY + gameData.screen_min_y - (topmostChunk - 1) * Chunk::WIDTH,
                               SHIP_LOW_X,
                               SHIP_Y,
@@ -697,7 +698,7 @@ namespace MHZ2 {
 
         return res;
     }
-}
+} // namespace MHZ2
 
 namespace FBZ2 {
     constexpr u8 BOSS_CLIMB = 0x4;
@@ -791,9 +792,162 @@ namespace SSZ1 {
     }
 } // namespace SSZ1
 
-namespace DEZ2 {
+namespace DEZ3 {
+    static constexpr int phase_chunk[] = {4, 12};
 
-}
+    static constexpr int BOSS_CHUNK_START_X = 4;
+    static constexpr int BOSS_CHUNK_START_Y = 2;
+    static constexpr int BOSS_CHUNK_END_X = 17;
+    static constexpr int BOSS_CHUNK_END_Y = 3;
+
+
+    static constexpr int EARTH_CHUNK_START_X = 0;
+    static constexpr int EARTH_CHUNK_START_Y = 0;
+    static constexpr int EARTH_CHUNK_END_X = 2;
+    static constexpr int EARTH_CHUNK_END_Y = 1;
+
+    static constexpr int EARTH_CHUNK_Y2 = 3;
+
+    static void drawDeathEggRobo(const int phase) {
+        // BGV[1] = x position
+        // BGV[2] = y position
+        const auto xPos = static_cast<s16>(gameData.bgEventVars[1]);
+        const auto yPos = static_cast<s16>(gameData.bgEventVars[2]);
+        const GET_LEFTMOST;
+        const GET_TOPMOST;
+        const float offsetX = xPos - leftmostChunk * Chunk::WIDTH;
+        const float offsetY = yPos - topmostChunk * Chunk::WIDTH;
+
+        int boss_left_chunk = phase_chunk[phase - 1];
+
+        const float startCoordX = offsetX - 1.5f * Chunk::WIDTH;
+        const float startCoordY = offsetY - Chunk::WIDTH;
+
+        for (int xChunk = BOSS_CHUNK_START_X; xChunk <= BOSS_CHUNK_END_X; xChunk++) {
+            const float trueX = startCoordX + (xChunk - boss_left_chunk) * Chunk::WIDTH;
+            for (int yChunk = BOSS_CHUNK_START_Y; yChunk <= BOSS_CHUNK_END_Y; yChunk++) {
+                const float trueY = startCoordY + (yChunk - BOSS_CHUNK_START_Y) * Chunk::WIDTH;
+
+                const int chunkID = gameData.level_chunks[yChunk][xChunk];
+
+                SDL_FRect src{
+                        .x = static_cast<float>(chunkID % 8 * Chunk::WIDTH * 2),
+                        .y = static_cast<float>(chunkID / 8 * Chunk::WIDTH),
+                        .w = static_cast<float>(Chunk::WIDTH),
+                        .h = static_cast<float>(Chunk::WIDTH),
+                };
+                SDL_FRect dst{
+                        .x = trueX,
+                        .y = trueY,
+                        .w = static_cast<float>(Chunk::WIDTH),
+                        .h = static_cast<float>(Chunk::WIDTH),
+                };
+
+                SDL_RenderTexture(renderer, chunks_texture, &src, &dst);
+            }
+        }
+    }
+
+    static bool drawFinalBossBG() {
+        const auto EarthXPos = static_cast<s16>(gameData.screen_position_A.first);
+        const auto yPos = static_cast<s16>(gameData.screen_position_A.second) - 2 * Block::WIDTH;
+        const auto FallingBlockX = gameData.bgEventVars[11];
+        const GET_LEFTMOST;
+        const GET_TOPMOST;
+        const GET_RIGHTMOST;
+        const float EarthOffsetX = EarthXPos - leftmostChunk * Chunk::WIDTH;
+        const float offsetY = yPos - topmostChunk * Chunk::WIDTH;
+        const float fallingOffset = FallingBlockX - leftmostChunk * Chunk::WIDTH;
+
+        // DRAW EARTH
+        int yChunk = 0;
+        for (int xChunk = EARTH_CHUNK_START_X; xChunk <= EARTH_CHUNK_END_X; xChunk++) {
+            const float trueX = EarthOffsetX + xChunk * Chunk::WIDTH;
+            const float trueY = offsetY + yChunk * Chunk::WIDTH;
+
+            const int chunkID = gameData.background_chunks[yChunk][xChunk];
+            SDL_FRect src{
+                .x = static_cast<float>(chunkID % 8 * Chunk::WIDTH * 2),
+                .y = static_cast<float>(chunkID / 8 * Chunk::WIDTH),
+                .w = static_cast<float>(Chunk::WIDTH),
+                .h = static_cast<float>(Chunk::WIDTH),
+            };
+            SDL_FRect dst{
+                .x = trueX,
+                .y = trueY,
+                .w = static_cast<float>(Chunk::WIDTH),
+                .h = static_cast<float>(Chunk::WIDTH),
+            };
+
+            SDL_RenderTexture(renderer, chunks_texture, &src, &dst);
+        }
+
+        yChunk = 1;
+        for (int xChunk = EARTH_CHUNK_START_X; xChunk <= EARTH_CHUNK_END_X; xChunk++) {
+            const float EarthX = EarthOffsetX + xChunk * Chunk::WIDTH;
+            const float trueY = offsetY + yChunk * Chunk::WIDTH;
+
+            const int chunkID = gameData.background_chunks[yChunk][xChunk];
+            SDL_FRect src{
+                .x = static_cast<float>(chunkID % 8 * Chunk::WIDTH * 2),
+                .y = static_cast<float>(chunkID / 8 * Chunk::WIDTH),
+                .w = static_cast<float>(Chunk::WIDTH),
+                .h = static_cast<float>(Chunk::WIDTH)-2*Block::WIDTH,
+            };
+            SDL_FRect dst{
+                .x = EarthX,
+                .y = trueY,
+                .w = static_cast<float>(Chunk::WIDTH),
+                .h = static_cast<float>(Chunk::WIDTH)-2*Block::WIDTH,
+            };
+
+            SDL_RenderTexture(renderer, chunks_texture, &src, &dst);
+        }
+
+        for (int l = leftmostChunk; l <= rightmostChunk; l++) {
+            const int chunkID1 = gameData.background_chunks[1][trueIMod(l, 7)];
+            const int chunkID2 = gameData.background_chunks[3][trueIMod(l, 7)];
+
+            const auto dstX = static_cast<float>((l-leftmostChunk) * Chunk::WIDTH);
+            if (dstX + Chunk::WIDTH - .1f < fallingOffset && dstX + Chunk::WIDTH - .1f <= EarthOffsetX)
+                continue;
+
+            SDL_FRect src1{
+                .x = static_cast<float>(chunkID1 % 8 * Chunk::WIDTH * 2),
+                .y = static_cast<float>(chunkID1 / 8 * Chunk::WIDTH) + Chunk::WIDTH - 2 * Block::WIDTH,
+                .w = static_cast<float>(Chunk::WIDTH),
+                .h = 2*Block::WIDTH,
+            };
+            SDL_FRect src2{
+                .x = static_cast<float>(chunkID2 % 8 * Chunk::WIDTH * 2),
+                .y = static_cast<float>(chunkID2 / 8 * Chunk::WIDTH) + Chunk::WIDTH - 2 * Block::WIDTH,
+                .w = static_cast<float>(Chunk::WIDTH),
+                .h = 2*Block::WIDTH,
+            };
+            SDL_FRect dst1{
+                .x = dstX,
+                .y = offsetY + 2 * Chunk::WIDTH - 2 * Block::WIDTH,
+                .w = static_cast<float>(Chunk::WIDTH),
+                .h = 2*Block::WIDTH,
+            };
+            SDL_FRect dst2 = dst1;
+            dst1.x = std::max(fallingOffset, dstX);
+            dst1.w = Chunk::WIDTH - (dst1.x - dstX);
+            src1.x += (dst1.x - dstX);
+            src1.w = dst1.w;
+
+            dst2.x = std::max(EarthOffsetX, dstX);
+            dst2.w = Chunk::WIDTH - (dst2.x - dstX);
+            src2.x += (dst2.x - dstX);
+            src2.w = dst2.w;
+
+
+            SDL_RenderTexture(renderer, chunks_texture, &src2, &dst2);
+            SDL_RenderTexture(renderer, chunks_texture, &src1, &dst1);
+        }
+        return true;
+    }
+} // namespace DEZ3
 
 static bool drawSelect(bool prio) {
     const auto event = gameData.getCurrentActFGEvent();
@@ -819,11 +973,14 @@ static bool drawSelect(bool prio) {
             return true;
         }
         case LEVEL_ACT_EVENT(DEATH_EGG_ZONE, 3, 1): {
-            // std::println("FG Ev Vars: {::04x}", gameData.fgEventVars);
-            // std::println("BG Ev Vars: {::04x}", gameData.bgEventVars);
-            // std::println("?? Ev Vars: {::04x}\n", gameData.unknownEventVars);
-
-            drawToLevelDefault(prio, true);
+            if (gameData.bgEvent >= 3 * EVENTs && gameData.bgEvent <= 4 * EVENTs) {
+                SDL_SetRenderDrawColor(renderer, 255, 0, 0, 128);
+                DEZ3::drawDeathEggRobo(1);
+            }
+            else {
+                SDL_SetRenderDrawColor(renderer, 0, 255, 0, 128);
+                DEZ3::drawDeathEggRobo(2);
+            }
             return true;
         }
 
@@ -887,14 +1044,11 @@ static bool drawSelectBG(const bool prio) {
         case LEVEL_ACT_EVENT(SKY_SANCTUARY_ZONE, 1, 2):
         case LEVEL_ACT_EVENT(SKY_SANCTUARY_ZONE, 1, 3): {
             SSZ1::start_colapse = std::nullopt;
+            return true;
         }
 
-        case LEVEL_ACT_EVENT(DEATH_EGG_ZONE, 3, 0) ...
-             LEVEL_ACT_EVENT(DEATH_EGG_ZONE, 3, 4): {
-            
-            // BGV[1] = x position
-            // BGV[2] = y position
-            return drawToBackgroundDefault(prio, true);
+        case LEVEL_ACT_EVENT(DEATH_EGG_ZONE, 3, 0)... LEVEL_ACT_EVENT(DEATH_EGG_ZONE, 3, 8): {
+            return DEZ3::drawFinalBossBG();
         }
 
         default: {

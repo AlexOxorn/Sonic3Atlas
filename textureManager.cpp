@@ -183,7 +183,7 @@ bool initDestTextures() {
         SDL_Log("Couldn't create rings_texture texture: %s", SDL_GetError());
         return false;
     }
-    SDL_SetTextureScaleMode(rings_texture, SDL_SCALEMODE_LINEAR);
+    SDL_SetTextureScaleMode(rings_texture, SDL_SCALEMODE_PIXELART);
 
     for (auto& level_texture : level_textures) {
         level_texture = SDL_CreateTexture(renderer,
@@ -196,7 +196,7 @@ bool initDestTextures() {
             SDL_Log("Couldn't create level_texture texture: %s", SDL_GetError());
             return false;
         }
-        SDL_SetTextureScaleMode(level_texture, SDL_SCALEMODE_LINEAR);
+        SDL_SetTextureScaleMode(level_texture, SDL_SCALEMODE_PIXELART);
         SDL_SetTextureBlendMode(level_texture, SDL_BLENDMODE_BLEND);
     }
 
@@ -211,7 +211,7 @@ bool initDestTextures() {
         SDL_Log("Couldn't create sprite_texture texture: %s", SDL_GetError());
         return false;
     }
-    SDL_SetTextureScaleMode(sprite_texture_high, SDL_SCALEMODE_LINEAR);
+    SDL_SetTextureScaleMode(sprite_texture_high, SDL_SCALEMODE_PIXELART);
     SDL_SetTextureBlendMode(sprite_texture_high, SDL_BLENDMODE_BLEND);
 
     sprite_texture_low = SDL_CreateTexture(renderer,
@@ -224,7 +224,7 @@ bool initDestTextures() {
         SDL_Log("Couldn't create sprite_texture texture: %s", SDL_GetError());
         return false;
     }
-    SDL_SetTextureScaleMode(sprite_texture_low, SDL_SCALEMODE_LINEAR);
+    SDL_SetTextureScaleMode(sprite_texture_low, SDL_SCALEMODE_PIXELART);
     SDL_SetTextureBlendMode(sprite_texture_low, SDL_BLENDMODE_BLEND);
 
     sprite_tmp_texture = SDL_CreateTexture(renderer,
@@ -237,7 +237,7 @@ bool initDestTextures() {
         SDL_Log("Couldn't create sprite_tmp_texture texture: %s", SDL_GetError());
         return false;
     }
-    SDL_SetTextureScaleMode(sprite_tmp_texture, SDL_SCALEMODE_LINEAR);
+    SDL_SetTextureScaleMode(sprite_tmp_texture, SDL_SCALEMODE_PIXELART);
 
     make_transparent_mask = SDL_CreateTexture(renderer,
         SDL_PIXELFORMAT_RGBA32,
@@ -249,7 +249,7 @@ bool initDestTextures() {
         SDL_Log("Couldn't create make_transparent_mask texture: %s", SDL_GetError());
         return false;
     }
-    SDL_SetTextureScaleMode(make_transparent_mask, SDL_SCALEMODE_LINEAR);
+    SDL_SetTextureScaleMode(make_transparent_mask, SDL_SCALEMODE_PIXELART);
     SDL_SetTextureBlendMode(make_transparent_mask, makeTransparentBlend);
 
     SDL_SetRenderTarget(renderer, make_transparent_mask);
@@ -267,7 +267,7 @@ bool initDestTextures() {
         SDL_Log("Couldn't create fullscreen_texture texture: %s", SDL_GetError());
         return false;
     }
-    SDL_SetTextureScaleMode(fullscreen_texture, SDL_SCALEMODE_LINEAR);
+    SDL_SetTextureScaleMode(fullscreen_texture, SDL_SCALEMODE_PIXELART);
 
 
     hud_texture = SDL_CreateTexture(renderer,

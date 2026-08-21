@@ -345,8 +345,7 @@ If however the game is currently paused, this acts as a NOP.
 
 */
 
-template <typename Out>
-static void xorDecode(FILE* fd, Out& o, int elemSize, std::set<int>& newlyUpdated) {
+template<typename Out> static void xorDecode(FILE* fd, Out& o, int elemSize, std::set<int>& newlyUpdated) {
     int msgLen;
     recvStrict(fd, &msgLen, 4);
     std::vector<u8> encoding;
@@ -362,8 +361,9 @@ static void xorDecode(FILE* fd, Out& o, int elemSize, std::set<int>& newlyUpdate
     while (dest < end && src < srcEnd) {
         if (*src != 0) {
             *dest ^= *src++;
-            newlyUpdated.insert((dest++ - start)/elemSize);
-        } else {
+            newlyUpdated.insert((dest++ - start) / elemSize);
+        }
+        else {
             u16 cnt = src[1];
             cnt += (src[2] << 8);
             dest += cnt + 1;
@@ -555,6 +555,14 @@ static s32 getNextFrame(FILE* fd) {
         else if (strncmp(msg, "EVNTDAT3", 8) == 0) {
             recvStrict(fd, gameData.unknownEventVars.data(), 2 * 4);
         }
+        else if (strncmp(msg, "EVNTDAT4", 8) == 0) {
+            recvStrict(fd, &gameData.currentZoneAct, 2);
+            recvStrict(fd, &gameData.bgEvent, 2);
+            recvStrict(fd, &gameData.fgEvent, 2);
+            recvStrict(fd, gameData.bgEventVars.data(), 2 * 12);
+            recvStrict(fd, gameData.fgEventVars.begin(), 2 * 6);
+            recvStrict(fd, &gameData.lbzDeathEggEvent, 2);
+        }
         else if (strncmp(msg, "IS_PAUSE", 8) == 0) {
             recvStrict(fd, &gameData.gamePaused, 2);
             // flags |= GAME_PAUSED * static_cast<bool>(gameData.gamePaused);
@@ -615,6 +623,9 @@ s32 previousFrameLag = 0;
 
 static std::pair<int, int> level_size_to_resolution() {
     const int chunk_height = gameData.level_chunks.size();
+    if (chunk_height <= 0) {
+        return scale16(R_FROM_HEIGHT(GENESIS_RESOLUTION.second));
+    }
     int pixel_height = chunk_height * Chunk::WIDTH;
     std::pair resolution = scale16(R_FROM_HEIGHT(pixel_height));
     return resolution;
@@ -716,25 +727,34 @@ static updateResult update_data() {
     return UPDATE_SUCCESS;
 }
 
+#define CLEAR_TEXTURE(x)                                                                                               \
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);                                                                      \
+    SDL_SetRenderTarget(renderer, x);                                                                                  \
+    SDL_RenderClear(renderer);
 
 static bool redrawAll() {
+    auto [mode, loading] = gameData.getGameMode();
     if (!redrawLevel) {
         return true;
     }
-    if (!drawToLevel(false)) {
-        return false;
-    };
-    if (!drawToLevel(true)) {
-        return false;
-    };
-    if (!drawToBackground(false)) {
-        return false;
-    };
-    if (!drawToBackground(true)) {
-        return false;
-    };
-    if (!drawHudText()) {
-        return false;
+    if (mode == MODE_LEVEL) {
+        if (!drawToLevel(false))
+            return false;
+        if (!drawToLevel(true)) {
+            return false;
+        };
+        if (!drawToBackground(false)) {
+            return false;
+        };
+        if (!drawToBackground(true)) {
+            return false;
+        };
+        if (!drawHudText()) {
+            return false;
+        }
+        if (!drawRings()) {
+            return false;
+        }
     }
     if (!drawSprites(false)) {
         return false;
@@ -742,135 +762,7 @@ static bool redrawAll() {
     if (!drawSprites(true)) {
         return false;
     };
-    if (!drawRings()) {
-        return false;
-    }
     redrawLevel = false;
-    return true;
-}
-
-static bool render_final_texture_lvl() {
-    SDL_FRect dst = {
-            .x = 0.0f, .y = 0.0f, .w = static_cast<float>(RENDER_WIDTH), .h = static_cast<float>(RENDER_HEIGHT)};
-    SDL_FRect src = {.x = trueFMod(scrollX, Chunk::WIDTH),
-                     .y = trueFMod(scrollY, Chunk::WIDTH),
-                     .w = RENDER_WIDTH / scale,
-                     .h = RENDER_HEIGHT / scale};
-
-
-    SDL_SetRenderTarget(renderer, fullscreen_texture);
-
-    SDL_SetRenderDrawColor(renderer, 0, 0, 0, SDL_ALPHA_OPAQUE);
-    SDL_RenderClear(renderer);
-    SDL_SetRenderDrawColor(renderer, 0, 0, 128, 128);
-    const SDL_FRect water_area{.x = 0,
-                               .y = (gameData.water_line - scrollY),
-                               .w = static_cast<float>(RENDER_WIDTH),
-                               .h = static_cast<float>(RENDER_HEIGHT)};
-
-    if (gameData.has_water)
-        SDL_RenderFillRect(renderer, &water_area);
-
-    for (int i = 0; i < RENDER_TARGET_COUNT; ++i) {
-        if (renderFlags & (1 << i)) {
-            SDL_RenderTexture(renderer, *texturesToRender[i], &src, &dst);
-        }
-    }
-
-
-    SDL_FRect full_src = {
-            .x = 0, .y = 0, .w = static_cast<float>(RENDER_WIDTH), .h = static_cast<float>(RENDER_HEIGHT)};
-    SDL_FRect full_dst = full_src;
-
-    if (WINDOW_WIDTH < RENDER_WIDTH) {
-        SDL_RenderTexture(renderer, make_transparent_mask, &full_src, &full_dst);
-    }
-    SDL_SetRenderTarget(renderer, nullptr);
-
-    SDL_SetRenderDrawColor(renderer, 0, 0, 0, SDL_ALPHA_OPAQUE);
-    SDL_RenderClear(renderer);
-
-    SDL_SetTextureBlendMode(fullscreen_texture, SDL_BLENDMODE_NONE);
-    SDL_RenderTexture(renderer, fullscreen_texture, &full_src, &full_src);
-
-    if (WINDOW_WIDTH < RENDER_WIDTH) {
-        full_dst.x += 1;
-        full_dst.y += 1;
-        SDL_SetTextureBlendMode(fullscreen_texture, mixTwoHalfBlend);
-        SDL_RenderTexture(renderer, fullscreen_texture, &full_src, &full_dst);
-    }
-
-    int lowLoop = 0;
-    int highLoop = 1;
-
-    if (gameData.screen_min_y < 0) {
-        while (gameData.screen_position_A.second - scrollY + lowLoop * gameData.vertical_loop +
-                       GENESIS_RESOLUTION.second >
-               0)
-            lowLoop--;
-
-        while (gameData.screen_position_A.second - scrollY + highLoop * gameData.vertical_loop < RENDER_HEIGHT)
-            highLoop++;
-    }
-    int RectWidth = 2 * RENDER_WIDTH / WINDOW_WIDTH;
-    if (RENDER_HEIGHT > 1440)
-        RectWidth *= 2;
-
-    for (int loopOff = lowLoop; loopOff < highLoop; loopOff++) {
-        SDL_FRect screenDim = {
-                .x = static_cast<float>(gameData.screen_position_A.first - scrollX),
-                .y = static_cast<float>(gameData.screen_position_A.second - scrollY + loopOff * gameData.vertical_loop),
-                .w = static_cast<float>(GENESIS_RESOLUTION.first),
-                .h = static_cast<float>(GENESIS_RESOLUTION.second)};
-
-        SDL_SetRenderDrawColor(renderer, 255, 0, 0, SDL_ALPHA_OPAQUE);
-        for (int i = 0; i < RectWidth; ++i) {
-            SDL_RenderRect(renderer, &screenDim);
-            screenDim.x -= 1;
-            screenDim.y -= 1;
-            screenDim.w += 2;
-            screenDim.h += 2;
-        }
-    }
-
-    auto leftBoundary = std::max(-1.0f, gameData.screen_min_x - scrollX);
-    auto rightBoundary = std::min(static_cast<float>(RENDER_WIDTH) + 1.f,
-                                  gameData.screen_max_x - scrollX + GENESIS_RESOLUTION.first);
-    auto topBoundary = gameData.screen_min_y < 0 ? 0 : std::max(-1.0f, gameData.screen_min_y - scrollY);
-    auto bottomBoundary = gameData.screen_min_y < 0
-            ? RENDER_HEIGHT
-            : std::min(static_cast<float>(RENDER_HEIGHT) + 1.f,
-                       gameData.screen_max_y - scrollY + GENESIS_RESOLUTION.second);
-
-    SDL_FRect boundary = {
-            .x = leftBoundary, .y = topBoundary, .w = rightBoundary - leftBoundary, .h = bottomBoundary - topBoundary};
-
-    SDL_SetRenderDrawColor(renderer, 255, 255, 0, 127);
-
-    for (int i = 0; i < RectWidth; ++i) {
-        SDL_RenderRect(renderer, &boundary);
-        boundary.x -= 1;
-        boundary.y -= 1;
-        boundary.w += 2;
-        boundary.h += 2;
-    }
-
-    SDL_FRect debug_src = {.x = 0,
-                           .y = 0,
-                           .w = static_cast<float>(pixelsPerRow),
-                           .h = static_cast<float>(SpriteMappingEntry::WIDTH * 5)};
-    SDL_FRect debug_dist = {.x = 0,
-                            .y = 0,
-                            .w = static_cast<float>(pixelsPerRow) * 2,
-                            .h = static_cast<float>(SpriteMappingEntry::WIDTH * 5) * 2};
-    SDL_FRect hud_src = {.x = 0, .y = 0, .w = WIDESCREEN_GEN.first, .h = WIDESCREEN_GEN.second};
-
-    SDL_SetTexturePalette(mappings_texture, full_palette);
-    if (!SDL_RenderTexture(renderer, hud_texture, nullptr, nullptr)) {
-        SDL_Log("Couldn't render hud onto screen: %s", SDL_GetError());
-        return false;
-    };
-
     return true;
 }
 
@@ -908,29 +800,36 @@ static bool renderMessages(float delta_time) {
         const auto m2 = std::format("FG EVENT: {:08x}", gameData.getCurrentActFGEvent());
         const auto m3 = std::format("GameMode: {:02x}", gameData.gameMode);
 
-        const auto v1 = std::format("BG Ev Vars: {::04x}", gameData.bgEventVars);
-        const auto v2 = std::format("FG Ev Vars: {::04x}", gameData.fgEventVars);
-        const auto v3 = std::format("?? Ev Vars: {::04x}", gameData.unknownEventVars);
+        const auto v1 = std::format("BG Ev Vars: {::04x}", gameData.bgEventVars | stdv::take(6));
+        const auto v2 = std::format("            {::04x}",
+                                    stdr::subrange(gameData.bgEventVars.begin() + 6, gameData.bgEventVars.end()));
+        const auto v3 = std::format("FG Ev Vars: {::04x}", gameData.fgEventVars);
+        const auto v4 = std::format("?? Ev Vars: {::04x}", gameData.unknownEventVars);
 
-        SDL_FRect eventMsgBox = {.x = .75f * WINDOW_WIDTH, .y = 8, .w = .24f * WINDOW_WIDTH, .h = 128};
+        constexpr float startEventVars = .82;
+        constexpr float startEventMsgs = startEventVars + .01f;
+
+        SDL_FRect eventMsgBox = {
+                .x = startEventVars * WINDOW_WIDTH, .y = 8, .w = (.99f - startEventVars) * WINDOW_WIDTH, .h = 148};
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
         SDL_RenderFillRect(renderer, &eventMsgBox);
         SDL_SetRenderDrawColor(renderer, 128, 128, 255, 255);
-        SDL_RenderDebugText(renderer, .91f * WINDOW_WIDTH, 10, m1.c_str());
+        SDL_RenderDebugText(renderer, .92f * WINDOW_WIDTH, 10, m1.c_str());
         SDL_SetRenderDrawColor(renderer, 255, 128, 128, 255);
-        SDL_RenderDebugText(renderer, .91f * WINDOW_WIDTH, 30, m2.c_str());
+        SDL_RenderDebugText(renderer, .92f * WINDOW_WIDTH, 30, m2.c_str());
         SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-        SDL_RenderDebugText(renderer, .91f * WINDOW_WIDTH, 50, m3.c_str());
+        SDL_RenderDebugText(renderer, .92f * WINDOW_WIDTH, 50, m3.c_str());
 
-        float msgX1 = 8.0f * static_cast<float>(v1.size() - v2.size());
-        float msgX2 = msgX1 + 8.0f * static_cast<float>(v2.size() - v3.size());
+        float msgX1 = 8.0f * static_cast<float>(v1.size() - v3.size());
+        float msgX2 = msgX1 + 8.0f * static_cast<float>(v3.size() - v4.size());
 
         SDL_SetRenderDrawColor(renderer, 128, 128, 255, 255);
-        SDL_RenderDebugText(renderer, .76f * WINDOW_WIDTH, 70, v1.c_str());
+        SDL_RenderDebugText(renderer, startEventMsgs * WINDOW_WIDTH, 70, v1.c_str());
+        SDL_RenderDebugText(renderer, startEventMsgs * WINDOW_WIDTH, 90, v2.c_str());
         SDL_SetRenderDrawColor(renderer, 255, 128, 128, 255);
-        SDL_RenderDebugText(renderer, .76f * WINDOW_WIDTH + msgX1, 90, v2.c_str());
+        SDL_RenderDebugText(renderer, startEventMsgs * WINDOW_WIDTH + msgX1, 110, v3.c_str());
         SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-        SDL_RenderDebugText(renderer, .76f * WINDOW_WIDTH + msgX2, 110, v3.c_str());
+        SDL_RenderDebugText(renderer, startEventMsgs * WINDOW_WIDTH + msgX2, 130, v4.c_str());
     }
 
 
@@ -957,16 +856,6 @@ static bool renderMessages(float delta_time) {
     return true;
 }
 
-static void transpose_flattened(const u32* src, u32* dest, int rows, int cols) {
-    for (int r = 0; r < rows; r++) {
-        for (int c = 0; c < cols; c++) {
-            const int src_idx = r * cols + c;
-            const int dest_idx = c * rows + r;
-            dest[dest_idx] = src[src_idx];
-        }
-    }
-}
-
 static SDL_Surface* previousFrame = nullptr;
 static u32* previousBuffer = nullptr;
 
@@ -987,8 +876,6 @@ static void writeToFFMPEG() {
     }
 }
 
-static bool reachedFinalBoss = false;
-
 static bool operFile(const char* filename) {
     if (inputStream != nullptr) {
         fclose(inputStream);
@@ -1003,7 +890,6 @@ static bool operFile(const char* filename) {
     return true;
 }
 
-
 #define CLEAN_WITH(x, del)                                                                                             \
     if (x) {                                                                                                           \
         del(x);                                                                                                        \
@@ -1014,7 +900,7 @@ static SDL_AppResult getGameUpdate() {
     if (!pauseData) {
         const auto res = update_data();
         if (res == UPDATE_LAG_FRAME) {
-            // fprintf(stderr, "LAG FRAME\n");
+            fprintf(stderr, "LAG FRAME\n");
         }
         if (res == UPDATE_FAILURE) {
             fprintf(stderr, "Update Failure\n");
@@ -1028,50 +914,193 @@ static SDL_AppResult getGameUpdate() {
 }
 
 static void clampScroll() {
-    if (x_loop == Options::OOB::CLAMP && scrollX < 0)
-        scrollX = 0;
+    if (x_loop == Options::OOB::CLAMP && targetX < 0)
+        targetX = 0;
     if (!gameData.level_chunks.empty()) {
-        if (x_loop == Options::OOB::CLAMP &&
-            scrollX >= gameData.level_chunks[0].size() * Chunk::WIDTH - RENDER_WIDTH)
-            scrollX = gameData.level_chunks[0].size() * Chunk::WIDTH - RENDER_WIDTH;
+        if (x_loop == Options::OOB::CLAMP && targetX >= gameData.level_chunks[0].size() * Chunk::WIDTH - RENDER_WIDTH)
+            targetX = gameData.level_chunks[0].size() * Chunk::WIDTH - RENDER_WIDTH;
 
 
         if (dynamicResolution && gameData.level_chunks.size() * Chunk::WIDTH <= RENDER_HEIGHT) {
-            scrollY = 0;
+            targetY = 0;
         }
-        else if (CLAMP_Y && scrollY < 0) {
-            scrollY = 0;
+        else if (CLAMP_Y && targetY < 0) {
+            targetY = 0;
         }
-        else if (CLAMP_Y && scrollY >= gameData.level_chunks.size() * Chunk::WIDTH - RENDER_HEIGHT)
-            scrollY = gameData.level_chunks.size() * Chunk::WIDTH - RENDER_HEIGHT;
+        else if (CLAMP_Y && targetY >= gameData.level_chunks.size() * Chunk::WIDTH - RENDER_HEIGHT)
+            targetY = gameData.level_chunks.size() * Chunk::WIDTH - RENDER_HEIGHT;
         else {
             scrollY = static_cast<float>(gameData.scroll_y - RENDER_HEIGHT / 2);
         }
     }
-    if (gameData.screen_min_y < 0 && scrollY < 0) {
-        scrollY += gameData.vertical_loop;
+    if (gameData.screen_min_y < 0 && targetY < 0) {
+        targetY += gameData.vertical_loop;
     }
 }
 
+static constexpr float lerp(const float a, const float b, const float alpha) { return (1 - alpha) * a + alpha * b; }
+
+static void lerpCamera() {
+    scrollX = lerp(scrollX, targetX, config.lerpFactor);
+    scrollY = lerp(scrollY, targetY, config.lerpFactor);
+}
+
 static void followCamera() {
-    scrollX = gameData.screen_position_A.first + GENESIS_RESOLUTION.first - RENDER_WIDTH/2;
-    scrollY = gameData.screen_position_A.second + GENESIS_RESOLUTION.second - RENDER_HEIGHT/2;
+    targetX = gameData.screen_position_A.first + GENESIS_RESOLUTION.first/2 - RENDER_WIDTH / 2;
+    targetY = gameData.screen_position_A.second + GENESIS_RESOLUTION.second/2 - RENDER_HEIGHT / 2;
     // clampScroll();
 }
 
 static void followSonic() {
     if (gameData.scroll_x > 0 && gameData.scroll_y > 0) {
-        scrollX = static_cast<float>(gameData.scroll_x - RENDER_WIDTH / 2);
-        scrollY = static_cast<float>(gameData.scroll_y - RENDER_HEIGHT / 2);
+        targetX = static_cast<float>(gameData.scroll_x - RENDER_WIDTH / 2);
+        targetY = static_cast<float>(gameData.scroll_y - RENDER_HEIGHT / 2);
         clampScroll();
         if (gameData.shakeFlag) {
-            scrollY -= gameData.shakeOffset;
+            targetY -= gameData.shakeOffset;
         }
     }
 }
 
+static void overRideConfig() {
+    auto [mode, loading] = gameData.getGameMode();
+    if (mode == MODE_SEGA || mode == MODE_DATA_SELECT) {
+        config.follow = Options::Follow::CAMERA;
+    }
+    switch (gameData.currentZoneAct) {
+        default:
+            break;
+    }
+}
+
+static bool render_final_texture_basic(const std::span<SDL_Texture** const> texturesToRender) {
+    SDL_FRect dst = {
+            .x = 0.0f, .y = 0.0f, .w = static_cast<float>(RENDER_WIDTH), .h = static_cast<float>(RENDER_HEIGHT)};
+    SDL_FRect src = {.x = trueFMod(scrollX, Chunk::WIDTH),
+                     .y = trueFMod(scrollY, Chunk::WIDTH),
+                     .w = RENDER_WIDTH / scale,
+                     .h = RENDER_HEIGHT / scale};
+
+    SDL_SetRenderTarget(renderer, fullscreen_texture);
+
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, SDL_ALPHA_OPAQUE);
+    SDL_RenderClear(renderer);
+    SDL_SetRenderDrawColor(renderer, 0, 0, 128, 128);
+    const SDL_FRect water_area{.x = 0,
+                               .y = (gameData.water_line - scrollY),
+                               .w = static_cast<float>(RENDER_WIDTH),
+                               .h = static_cast<float>(RENDER_HEIGHT)};
+
+    if (gameData.has_water)
+        SDL_RenderFillRect(renderer, &water_area);
+
+    for (int i = 0; i < texturesToRender.size(); ++i) {
+        if (renderFlags & (1 << i)) {
+            SDL_RenderTexture(renderer, *texturesToRender[i], &src, &dst);
+        }
+    }
+
+    SDL_FRect full_src = {
+            .x = 0, .y = 0, .w = static_cast<float>(RENDER_WIDTH), .h = static_cast<float>(RENDER_HEIGHT)};
+    SDL_FRect full_dst = full_src;
+
+    if (WINDOW_WIDTH < RENDER_WIDTH) {
+        SDL_RenderTexture(renderer, make_transparent_mask, &full_src, &full_dst);
+    }
+    SDL_SetRenderTarget(renderer, nullptr);
+
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, SDL_ALPHA_OPAQUE);
+    SDL_RenderClear(renderer);
+
+    SDL_SetTextureBlendMode(fullscreen_texture, SDL_BLENDMODE_NONE);
+    SDL_RenderTexture(renderer, fullscreen_texture, &full_src, &full_src);
+
+    if (WINDOW_WIDTH < RENDER_WIDTH) {
+        full_dst.x += 1;
+        full_dst.y += 1;
+        SDL_SetTextureBlendMode(fullscreen_texture, mixTwoHalfBlend);
+        SDL_RenderTexture(renderer, fullscreen_texture, &full_src, &full_dst);
+    }
+
+    int lowLoop = 0;
+    int highLoop = 1;
+
+    if (gameData.screen_min_y < 0) {
+        while (gameData.screen_position_A.second - scrollY + lowLoop * gameData.vertical_loop +
+                       GENESIS_RESOLUTION.second >
+               0)
+            lowLoop--;
+
+        while (gameData.screen_position_A.second - scrollY + highLoop * gameData.vertical_loop < RENDER_HEIGHT)
+            highLoop++;
+    }
+    int RectWidth = 2 * RENDER_WIDTH / WINDOW_WIDTH;
+    if (RENDER_HEIGHT > 1440)
+        RectWidth += 1;
+
+    for (int loopOff = lowLoop; loopOff < highLoop; loopOff++) {
+        SDL_FRect screenDim = {
+                .x = static_cast<float>(gameData.screen_position_A.first - scrollX),
+                .y = static_cast<float>(gameData.screen_position_A.second - scrollY + loopOff * gameData.vertical_loop),
+                .w = static_cast<float>(GENESIS_RESOLUTION.first),
+                .h = static_cast<float>(GENESIS_RESOLUTION.second)};
+
+        SDL_SetRenderDrawColor(renderer, 255, 0, 0, SDL_ALPHA_OPAQUE);
+        for (int i = 0; i < RectWidth; ++i) {
+            SDL_RenderRect(renderer, &screenDim);
+            screenDim.x -= 1;
+            screenDim.y -= 1;
+            screenDim.w += 2;
+            screenDim.h += 2;
+        }
+    }
+
+    const auto leftBoundary = std::max(-1.0f, gameData.screen_min_x - scrollX);
+    const auto rightBoundary = std::min(static_cast<float>(RENDER_WIDTH) + 1.f,
+                                        gameData.screen_max_x - scrollX + GENESIS_RESOLUTION.first);
+    const auto topBoundary = gameData.screen_min_y < 0 ? 0 : std::max(-1.0f, gameData.screen_min_y - scrollY);
+    const auto bottomBoundary = gameData.screen_min_y < 0
+            ? RENDER_HEIGHT
+            : std::min(static_cast<float>(RENDER_HEIGHT) + 1.f,
+                       gameData.screen_max_y - scrollY + GENESIS_RESOLUTION.second);
+
+    SDL_FRect boundary = {
+            .x = leftBoundary, .y = topBoundary, .w = rightBoundary - leftBoundary, .h = bottomBoundary - topBoundary};
+
+    SDL_SetRenderDrawColor(renderer, 255, 255, 0, 127);
+
+    for (int i = 0; i < RectWidth; ++i) {
+        SDL_RenderRect(renderer, &boundary);
+        boundary.x -= 1;
+        boundary.y -= 1;
+        boundary.w += 2;
+        boundary.h += 2;
+    }
+
+    SDL_FRect debug_src = {.x = 0,
+                           .y = 0,
+                           .w = static_cast<float>(pixelsPerRow),
+                           .h = static_cast<float>(SpriteMappingEntry::WIDTH * 5)};
+    SDL_FRect debug_dist = {.x = 0,
+                            .y = 0,
+                            .w = static_cast<float>(pixelsPerRow) * 2,
+                            .h = static_cast<float>(SpriteMappingEntry::WIDTH * 5) * 2};
+    SDL_FRect hud_src = {.x = 0, .y = 0, .w = WIDESCREEN_GEN.first, .h = WIDESCREEN_GEN.second};
+    return true;
+}
+
+static bool render_hud() {
+    SDL_SetTexturePalette(mappings_texture, full_palette);
+    if (!SDL_RenderTexture(renderer, hud_texture, nullptr, nullptr)) {
+        SDL_Log("Couldn't render hud onto screen: %s", SDL_GetError());
+        return false;
+    };
+    return true;
+}
+
 namespace Output {
     SDL_AppResult INIT() {
+        config = baseConfig;
         window = SDL_CreateWindow("Sonic 3 Atlas Rendering", WINDOW_WIDTH, WINDOW_HEIGHT, 0);
 
         if (window == nullptr) {
@@ -1158,16 +1187,8 @@ namespace Output {
             SDL_Log("Failed to initialize source textures: %s\n", SDL_GetError());
         }
 
-        config = baseConfig;
         return update_data() != UPDATE_FAILURE ? SDL_APP_CONTINUE : SDL_APP_FAILURE;
     }
-
-    static void overRideConfig() {
-        switch (gameData.currentZoneAct) {
-            default: break;
-        }
-    }
-
     SDL_AppResult EVENT(void* appstate, SDL_Event* event) {
         if (event->type == SDL_EVENT_KEY_DOWN) {
             if ((event->key.mod & SDL_KMOD_CTRL) == 0) {
@@ -1295,7 +1316,7 @@ namespace Output {
         if (previousBuffer == nullptr)
             previousBuffer = static_cast<u32*>(calloc(FFMPEG_BYTES_PER_FRAME / sizeof(u32), sizeof(u32)));
 
-
+        overRideConfig();
 
         const u64 current_ticks = SDL_GetTicks();
         // Delta time in seconds
@@ -1305,6 +1326,9 @@ namespace Output {
         if (const auto res = getGameUpdate(); res != SDL_APP_CONTINUE)
             return res;
 
+
+        auto [mode, loading] = gameData.getGameMode();
+
         switch (config.follow) {
             case Options::Follow::PLAYER:
                 followSonic();
@@ -1313,6 +1337,7 @@ namespace Output {
                 followCamera();
                 break;
         }
+        lerpCamera();
 
         const auto ticks = SDL_GetTicks();
         const float seconds = static_cast<float>(ticks) / 1000;
@@ -1329,7 +1354,15 @@ namespace Output {
             return SDL_APP_FAILURE;
         }
 
-        const bool success = render_final_texture_lvl();
+        bool success = true;
+        if (mode == MODE_LEVEL && !loading) {
+            success = render_final_texture_basic(std::span{levelTexturesToRender});
+            success = success && render_hud();
+        }
+        else {
+            success = render_final_texture_basic(spriteTexturesToRender);
+        }
+
         SDL_SetRenderLogicalPresentation(renderer, RENDER_WIDTH, RENDER_HEIGHT, SDL_LOGICAL_PRESENTATION_DISABLED);
         if (!renderMessages(delta_time)) {
             config = baseConfig;
@@ -1369,6 +1402,7 @@ namespace Output {
         CLEAN_WITH(renderer, SDL_DestroyRenderer)
         CLEAN_WITH(window, SDL_DestroyWindow)
         inputIsFile = false;
+        gameData.clear();
         return SDL_APP_CONTINUE;
     }
 } // namespace Output
